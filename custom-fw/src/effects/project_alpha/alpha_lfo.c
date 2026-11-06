@@ -19,10 +19,11 @@ static inline float fast_sine_01(float p) {
     return y * (0.775f + 0.225f * fabsf(y));
 }
 
-/* Fast 2^x for small octave offsets */
+/* Fast 2^x. The glide runs in ABSOLUTE octaves (log2 of the pitch in Hz: 110 Hz = 6.8, 2 kHz = 11),
+ * so the clamp must cover that range; the old +-4 clamp pinned every glided pitch to ~16 Hz. */
 static inline float fast_exp2f_mod(float x) {
-    if (x < -4.0f) x = -4.0f;
-    if (x >  4.0f) x =  4.0f;
+    if (x < -8.0f) x = -8.0f;
+    if (x > 16.0f) x = 16.0f;
     int32_t i = (int32_t)floorf(x);
     float f = x - (float)i;
     float p = 1.0f + f * (0.69314718f + f * (0.24022651f + f * (0.05550411f + f * 0.00961813f)));
