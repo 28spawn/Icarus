@@ -83,7 +83,9 @@ console.log('\n=== a signal in the jack comes out of the jack ===');
 for (let k = 0; k < 250; k++) pushJack(0.5);
 const pk = peakL();
 /* no factory partition in the test build: the amp is the synthetic placeholder, so the level is low */
-check(pk > 100, `the left slot carries signal (peak ${pk} of 8388607)`);
+/* The test build's placeholder amp leaves the jack at ~90 of 8388607 (-99 dBFS): it moved between 92 and 105 as the default chain
+ * changed, so a bare "> 100" flapped. What this checks is signal vs the 1-LSB dither floor, so require well above that. */
+check(pk > 16, `the left slot carries signal (peak ${pk} of 8388607)`);
 
 console.log('\n=== the right slot is a separate channel ===');
 let same = 0;

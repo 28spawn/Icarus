@@ -30,6 +30,12 @@ def array(text, name, dims):
     return [flat[i:i + dims] for i in range(0, len(flat), dims)]
 
 
+def synth_names():
+    """Slot 1 is the Project Alpha synth: its models are the 12 factory presets in src/effects/project_alpha/alpha.c."""
+    a = (FW / "src" / "effects" / "project_alpha" / "alpha.c").read_text(encoding="utf-8")
+    return re.findall(r'\.name\s*=\s*"([^"]*)"', a)
+
+
 def tables():
     t = SRC.read_text(encoding="utf-8")
     f = t[t.index("get_slot_model_name(const pa_ui_ctx_t"):t.index("/* UI Primitives */")]
@@ -37,12 +43,12 @@ def tables():
     counts = dict((k, int(v)) for k, v in re.findall(r"case PA_SLOT_(\w+):\s+return (\d+);", cnt))
     eqn = [int(x) for x in re.search(r"static const uint8_t n\[3\] = \{([^}]*)\}", cnt).group(1).split(",")]
     return {
-        "models": {"DYN": array(f, "dyn_models", 1), "DRIVE": array(f, "drv_models", 1), "EQ": array(f, "eq_models", 1), "MOD": array(f, "mod_models", 1),
+        "models": {"DYN": array(f, "dyn_models", 1), "SYNTH": synth_names(), "EQ": array(f, "eq_models", 1), "MOD": array(f, "mod_models", 1),
                    "DLY": array(f, "dly_models", 1), "REV": array(f, "rev_models", 1)},
-        "params": {"DYN": array(f, "dyn_params", 4), "DRIVE": array(f, "drv_params", 1), "AMP": array(f, "amp_params", 1), "CAB": array(f, "cab_params", 1),
+        "params": {"DYN": array(f, "dyn_params", 4), "SYNTH": array(f, "syn_params", 1), "AMP": array(f, "amp_params", 1), "CAB": array(f, "cab_params", 1),
                    "EQ": [array(f, "eq_bands", 1), array(f, "eq_cut", 1), array(f, "eq_par", 1)], "MOD": array(f, "mod_params", 4),
                    "DLY": [array(f, "dly_params", 1)[:3], array(f, "dly_aux", 1)], "REV": array(f, "rev_params", 1)},
-        "counts": {"DYN": counts["DYNAMICS"], "DRIVE": counts["DRIVE"], "AMP": counts["AMP"], "CAB": counts["CAB"], "MOD": counts["MOD"], "DLY": counts["DELAY"],
+        "counts": {"DYN": counts["DYNAMICS"], "SYNTH": counts["SYNTH"], "AMP": counts["AMP"], "CAB": counts["CAB"], "MOD": counts["MOD"], "DLY": counts["DELAY"],
                    "REV": counts["REVERB"], "EQ": eqn},
     }
 

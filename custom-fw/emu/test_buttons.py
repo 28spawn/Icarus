@@ -444,9 +444,9 @@ check(d.emu_get_ui(23) == 1, "STOMP mode is on")
 check([d.emu_get_ui(26 + i) for i in range(4)] == [0, 1, 2, 4], f"P01's keys are DYN, SYNTH, AMP, EQ ({[d.emu_get_ui(26 + i) for i in range(4)]})")
 
 
-def synth_on():
+def synth_on():   # bit 0 = DYN (the key VOL- toggles); the name is historic
     d.emu_get_telemetry(ctypes.byref(tel))
-    return (tel.slot_active_mask >> 1) & 1
+    return (tel.slot_active_mask >> 0) & 1
 
 
 on0 = synth_on()

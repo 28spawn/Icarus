@@ -131,7 +131,7 @@ progress { width:100%; height:8px; }
 </main>
 <script>
 /*TABLES-BEGIN (tools/gen_editor_tables.py: do not edit)*/
-const TABLES = {"models":{"DYN":["GATE","BOOST+GATE","COMP+GATE","AI GATE MS","COMP"],"DRIVE":["TS-808","KLON","OCD","RAT","BIG MUFF","FUZZ FACE"],"EQ":["5-BAND","LOW/HIGH CUT","PARAMETRIC-3"],"MOD":["CHORUS","PHASER","FLANGER","TREMOLO","VIBRATO","UNIVIBE","AUTO FILTER"],"DLY":["ANALOG","DUCKING","TAPE","DUAL","LO-FI","DIGITAL","PING PONG","REVERSE","SLAPBACK"],"REV":["ROOM","HALL","SWELL","SPRING","SHIMMER","CLOUD","PLATE","AMBIENCE"]},"params":{"DYN":[["THRESH","RELEASE","ATTACK","LEVEL"],["THRESH","RELEASE","---","BOOST"],["THRESH","RATIO","ATTACK","LEVEL"],["THRESH","RELEASE","ATTACK","LEVEL"],["THRESH","RATIO","ATTACK","LEVEL"]],"DRIVE":["DRIVE","TONE","LEVEL"],"AMP":["GAIN","BASS","MID","TREBLE","PRES","MASTER"],"CAB":["LEVEL","LOWCUT","HICUT"],"EQ":[["100","400","1k","3k","8k"],["LOWCUT","HICUT","LEVEL"],["LOW","MID","FREQ","HIGH"]],"MOD":[["RATE","DEPTH","MIX","---"],["RATE","DEPTH","MIX","FDBK"],["RATE","DEPTH","MIX","FDBK"],["RATE","DEPTH","---","---"],["RATE","DEPTH","---","---"],["RATE","DEPTH","MIX","FDBK"],["RATE","RANGE","MIX","RESO"]],"DLY":[["TIME","FDBK","MIX"],["MOD","RELEASE","GRIT","RATIO","GRIT","TONE","TONE","TONE","TONE"]],"REV":["DECAY","LOWCUT","TONE","MIX"]},"counts":{"DYN":4,"DRIVE":3,"AMP":6,"CAB":3,"MOD":4,"DLY":4,"REV":4,"EQ":[5,3,4]}};
+const TABLES = {"models":{"DYN":["GATE","BOOST+GATE","COMP+GATE","AI GATE MS","COMP"],"SYNTH":["Metheny Lead","GR Brass","Vintage Solo","Synth Bass","Liquid Lead","Analog Fuzz","GR Texture","Soft Pad","Square Lead","Dark Sequence","Octave Machine","Pure GR"],"EQ":["5-BAND","LOW/HIGH CUT","PARAMETRIC-3"],"MOD":["CHORUS","PHASER","FLANGER","TREMOLO","VIBRATO","UNIVIBE","AUTO FILTER"],"DLY":["ANALOG","DUCKING","TAPE","DUAL","LO-FI","DIGITAL","PING PONG","REVERSE","SLAPBACK"],"REV":["ROOM","HALL","SWELL","SPRING","SHIMMER","CLOUD","PLATE","AMBIENCE"]},"params":{"DYN":[["THRESH","RELEASE","ATTACK","LEVEL"],["THRESH","RELEASE","---","BOOST"],["THRESH","RATIO","ATTACK","LEVEL"],["THRESH","RELEASE","ATTACK","LEVEL"],["THRESH","RATIO","ATTACK","LEVEL"]],"SYNTH":["CUTOFF","RESO","ENV","MIX","DRIVE","GLIDE"],"AMP":["GAIN","BASS","MID","TREBLE","PRES","MASTER"],"CAB":["LEVEL","LOWCUT","HICUT"],"EQ":[["100","400","1k","3k","8k"],["LOWCUT","HICUT","LEVEL"],["LOW","MID","FREQ","HIGH"]],"MOD":[["RATE","DEPTH","MIX","---"],["RATE","DEPTH","MIX","FDBK"],["RATE","DEPTH","MIX","FDBK"],["RATE","DEPTH","---","---"],["RATE","DEPTH","---","---"],["RATE","DEPTH","MIX","FDBK"],["RATE","RANGE","MIX","RESO"]],"DLY":[["TIME","FDBK","MIX"],["MOD","RELEASE","GRIT","RATIO","GRIT","TONE","TONE","TONE","TONE"]],"REV":["DECAY","LOWCUT","TONE","MIX"]},"counts":{"DYN":4,"SYNTH":6,"AMP":6,"CAB":3,"MOD":4,"DLY":4,"REV":4,"EQ":[5,3,4]}};
 /*TABLES-END*/
 //CORE-BEGIN
 // ---- the unit's SysEx framing: F0 <8->7 bit packed inner frame> F7, inner = 00 59 cmd len:u24le payload chk (tools/mvave_device.py) ----
@@ -198,7 +198,7 @@ class BleUnframer {                                    // device notifications -
   }
 }
 // ---- MIDI control (MIDI-MAP-CUSTOM.md) ----
-const SLOTS = ["DYN", "DRIVE", "AMP", "CAB", "EQ", "MOD", "DLY", "REV"];               // the firmware's slot ids 0..7, in signal order
+const SLOTS = ["DYN", "SYNTH", "AMP", "CAB", "EQ", "MOD", "DLY", "REV"];               // the firmware's slot ids 0..7, in signal order
 const SLOT_MODULE = [0, 6, 1, 5, 7, 2, 3, 4];                                          // slot id -> NRPN module / CC 28+n number
 const pc = (n) => [0xC0, n & 0x7F];
 const cc = (c, v) => [0xB0, c & 0x7F, v & 0x7F];
@@ -682,7 +682,7 @@ const gr = {
   drums: toggle("Drums on", (v) => sendShort(nrpn(9, 4, v, true))),
 };
 $("groove").append(gr.play, gr.bpm, gr.pat, gr.vol, gr.drums);
-const MODNAMES = ["DYN", "AMP", "MOD", "DLY", "REV", "CAB", "DRIVE", "EQ"];
+const MODNAMES = ["DYN", "AMP", "MOD", "DLY", "REV", "CAB", "SYNTH", "EQ"];
 const stompEls = ["VOL-", "VOL+", "<", ">"].map((t, i) => { const e = select("Key " + t, MODNAMES, (v) => sendShort(nrpn(10, 3 + i, v, true))); $("stomp").appendChild(e); return e; });
 $("bTuner").onclick = () => sendShort(cc(85, 127));
 
