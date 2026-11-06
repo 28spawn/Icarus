@@ -108,7 +108,7 @@ progress { width:100%; height:8px; }
   <h2>Firmware update</h2>
   <p class="note">Over USB MIDI, in one click, the way the Pendel installer does it: the running firmware checks the package and stages its update loader, the loader writes the firmware and the unit restarts. Chrome or Edge (Web MIDI with SysEx), the unit connected directly by a USB data cable, no other program using it. Do not unplug while it works; if it is cut off the unit stays in update mode and the same button continues.</p>
   <h2>Install a firmware</h2>
-  <div class="drop"><input type="file" id="fwFile" accept=".fwsc,.bin,.ufw"><div class="kv" id="fwInfo">pick the <code>Pocket_AMP_Custom.fwsc</code> the build writes</div></div>
+  <div class="drop"><input type="file" id="fwFile" accept=".fwsc,.bin,.ufw"><div class="kv" id="fwInfo">pick the <code>Project_Alpha.fwsc</code> the build writes</div></div>
   <div class="pre"><button id="fwInstall" class="pri" disabled>Install this firmware</button><span class="note">works from the original firmware and from this one. It rewrites the app area and the area behind it: <b>your stored captures and cabinets are erased</b> (the PC tool below keeps them). The Onyx update loader (an install of an Onyx package) writes the app area only.</span></div>
   <h2>Back to the original M-VAVE firmware</h2>
   <div class="drop"><input type="file" id="fwOrigFile" accept=".fwsc"><div class="kv" id="fwOrigInfo">pick the unmodified <code>Pocket AMP.fwsc</code> from m-vave.com/download (it is checked by its SHA-256 and never sent anywhere)</div></div>
@@ -469,7 +469,7 @@ function areaFromFile(d) {
       if (!flash) { try { const w = unwrapFwsc(b); flash = ufwFlash(w.ufw); if (flash) how = ".fwsc (" + w.product + ")"; } catch (_) { /* not a .fwsc */ } }
       if (!flash) { flash = ufwFlash(b); if (flash) how = ".ufw"; }
     }
-    if (!flash) return { error: "this is not a firmware file the page knows: " + b.length + " bytes. Pick the .fwsc the build writes, or Pocket_AMP_Custom_app_area.bin" };
+    if (!flash) return { error: "this is not a firmware file the page knows: " + b.length + " bytes. Pick the .fwsc the build writes, or Project_Alpha_app_area.bin" };
     if (flash.length < 0x86000) return { error: "the flash image inside is only " + flash.length + " bytes" };
     area = flash.slice(APP_BASE, USER_STORE_BASE);
   }

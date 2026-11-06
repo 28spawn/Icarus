@@ -3,7 +3,7 @@
 # Usage:
 #   make test    — Build and run native PC verification suites
 #   make cross   — Cross-compile all firmware objects for JieLi AC791N (pi32v2)
-#   make fw      — Link app.elf, extract app.bin, and package Pocket_AMP_Custom.fwsc
+#   make fw      — Link app.elf, extract app.bin, and package Project_Alpha.fwsc
 
 BOARD ?= pocket_amp
 
@@ -142,8 +142,8 @@ fw:
 	done
 	$(PI32_LD) -T app.ld -o build_pi32/app.elf build_pi32/*.o -L $(PI32_LIB) -lc -lm -lcompiler_rt
 	$(PI32_OC) -O binary -j .text build_pi32/app.elf build_pi32/app.bin
-	$(PYTHON) tools/pack_ufw.py --in-bin build_pi32/app.bin --out-ufw build_pi32/app.ufw --out-fwsc ../../Pocket_AMP_Custom.fwsc --template-fwsc "../../Pocket AMP.fwsc"
-	@echo "[+] Successfully built build_pi32/app.bin and Pocket_AMP_Custom.fwsc!"
+	$(PYTHON) tools/pack_ufw.py --in-bin build_pi32/app.bin --out-ufw build_pi32/app.ufw --out-fwsc ../../Project_Alpha.fwsc --template-fwsc "../../Pocket AMP.fwsc"
+	@echo "[+] Successfully built build_pi32/app.bin and Project_Alpha.fwsc!"
 
 clean:
 	rm -f build_test_* *.o build_pi32/*.o build_pi32/*.elf build_pi32/*.bin build_pi32/*.ufw

@@ -19,13 +19,13 @@
 
 static const uint32_t pa_dsp_slot_cycles[PA_DSP_COST_NUM_SLOTS] = {
     14000u,  /* 0 DYNAMICS */
-    18500u,  /* 1 DRIVE    */
+    85000u,  /* 1 SYNTH (Project Alpha) */
     135000u, /* 2 AMP      */
     38000u,  /* 3 CAB      */
     15000u,  /* 4 EQ       */
-    22000u,  /* 5 MOD      */
-    24000u,  /* 6 DELAY    */
-    52000u,  /* 7 REVERB   */
+    0u,      /* 5 unused   */
+    0u,      /* 6 unused   */
+    0u,      /* 7 unused   */
 };
 
 #endif /* PA_DSP_COST_H */

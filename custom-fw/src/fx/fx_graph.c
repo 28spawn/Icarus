@@ -8,6 +8,7 @@
 #include "pa_dsp_cost.h"
 #include "../dsp/fixedpoint.h"
 #include "pa_biquad.h"
+#include "../effects/project_alpha/alpha.h"
 #if !defined(PA_HOST_BUILD) && !defined(PA_HOST_SIM)
 #include "pa_plat.h"                    /* PA_ISR_CP: bench breadcrumbs for the audio interrupt */
 #endif
@@ -144,18 +145,18 @@ void pa_fx_chain_init(pa_fx_chain_t *chain, fx_node_t *amp_node, fx_node_t *cab_
     chain->fizz_s2_R[0] = chain->fizz_s2_R[1] = 0;
 
     chain->slots[PA_SLOT_DYNAMICS] = fx_dynamics_new();
-    chain->slots[PA_SLOT_DRIVE]    = fx_drive_new();
+    chain->slots[PA_SLOT_SYNTH]    = fx_synth_new();
     chain->slots[PA_SLOT_AMP]      = amp_node;
     chain->slots[PA_SLOT_CAB]      = cab_node;
     chain->slots[PA_SLOT_EQ]       = fx_eq_new();
-    chain->slots[PA_SLOT_MOD]      = fx_mod_new();
-    chain->slots[PA_SLOT_DELAY]    = fx_delay_new();
-    chain->slots[PA_SLOT_REVERB]   = fx_reverb_new();
+    chain->slots[PA_SLOT_MOD]      = 0;
+    chain->slots[PA_SLOT_DELAY]    = 0;
+    chain->slots[PA_SLOT_REVERB]   = 0;
 
-    /* Default order matching User Manual Page 4 diagram:
-     * IN -> FX (Dynamics + Drive) -> AMP -> EQ -> MOD -> DLY -> REV -> CAB -> OUT */
-    chain->slot_order[0] = PA_SLOT_DYNAMICS;      /* IMP-13: keep mono CAB/EQ before stereo FX */
-    chain->slot_order[1] = PA_SLOT_DRIVE;
+    /* Default order for the 5 focused blocks:
+     * IN -> DYN -> SYNTH -> AMP -> CAB -> EQ -> OUT */
+    chain->slot_order[0] = PA_SLOT_DYNAMICS;
+    chain->slot_order[1] = PA_SLOT_SYNTH;
     chain->slot_order[2] = PA_SLOT_AMP;
     chain->slot_order[3] = PA_SLOT_CAB;
     chain->slot_order[4] = PA_SLOT_EQ;
@@ -296,18 +297,17 @@ static void fx_set_param_recorded(pa_fx_chain_t *chain, pa_fx_slot_id_t slot,
     }
 }
 
-/* IMP-13: model/type selection. Each node historically used a different param id. */
+/* IMP-13: model/type selection. */
 void pa_fx_chain_set_slot_type(pa_fx_chain_t *chain, pa_fx_slot_id_t slot, uint8_t type) {
     if (!chain || slot >= PA_SLOT_COUNT) return;
     fx_node_t *nd = chain->slots[slot];
     if (!nd || !nd->set_param) return;
     switch (slot) {
-        case PA_SLOT_DRIVE:    fx_set_param_recorded(chain, slot, 3,  (int32_t)type); break;  /* DRV_PARAM_TYPE */
         case PA_SLOT_DYNAMICS:
+        case PA_SLOT_SYNTH:
         case PA_SLOT_EQ:
-        case PA_SLOT_MOD:
-        case PA_SLOT_DELAY:
-        case PA_SLOT_REVERB:   fx_set_param_recorded(chain, slot, 10, (int32_t)type); break;  /* "explicit type" id */
+            fx_set_param_recorded(chain, slot, 10, (int32_t)type);
+            break;
         default: break;                                                     /* AMP/CAB: loaders */
     }
 }
@@ -315,11 +315,8 @@ void pa_fx_chain_set_slot_type(pa_fx_chain_t *chain, pa_fx_slot_id_t slot, uint8
 uint8_t pa_fx_slot_type_count(pa_fx_slot_id_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return 5;     /* + COMP (no gate) */
-        case PA_SLOT_DRIVE:    return 6;
-        case PA_SLOT_MOD:      return 7;
+        case PA_SLOT_SYNTH:    return 12;    /* 12 Project Alpha Factory Presets */
         case PA_SLOT_EQ:       return 3;     /* 5-BAND, LOW/HIGH CUT, PARAMETRIC-3 */
-        case PA_SLOT_DELAY:    return 9;     /* + DIGITAL, PING PONG, REVERSE, SLAPBACK */
-        case PA_SLOT_REVERB:   return 8;     /* + PLATE, AMBIENCE */
         default:               return 1;
     }
 }
@@ -335,15 +332,13 @@ void pa_fx_chain_restore_slot_params(pa_fx_chain_t *chain, pa_fx_slot_id_t slot)
     uint16_t mask = chain->slot_param_mask[slot];
 
     /* 1. Restore TYPE FIRST so the effect model is selected before knobs are applied */
-    if (slot == PA_SLOT_DRIVE && (mask & (1u << 3))) {
-        nd->set_param(nd, 3, chain->slot_param_q21[slot][3]);
-    } else if (mask & (1u << 10)) {
+    if (mask & (1u << 10)) {
         nd->set_param(nd, 10, chain->slot_param_q21[slot][10]);
     }
 
     /* 2. Restore all other knob parameters */
     for (int id = 0; id < PA_FX_PARAM_IDS; id++) {
-        if (id == 10 || (slot == PA_SLOT_DRIVE && id == 3)) continue;
+        if (id == 10) continue;
         if (mask & (1u << id)) {
             nd->set_param(nd, id, chain->slot_param_q21[slot][id]);
         }
@@ -756,6 +751,23 @@ static void pa_lvl_width(const int32_t *l, const int32_t *r, int n) {
 #define pa_lvl_width(l, r, n) ((void)0)
 #endif
 
+__attribute__((weak)) alpha_state_t *alpha_get_active(void) { return 0; }
+__attribute__((weak)) void alpha_process_block_q21(alpha_state_t *s, const int32_t *in_mono_q21, int32_t *out_L_q21, int32_t *out_R_q21, int n) { (void)s; (void)in_mono_q21; (void)out_L_q21; (void)out_R_q21; (void)n; }
+__attribute__((weak)) void alpha_post_output_gate_q21(alpha_state_t *s, int32_t *buf_L_q21, int32_t *buf_R_q21, int n) { (void)s; (void)buf_L_q21; (void)buf_R_q21; (void)n; }
+
+/* Does Project Alpha actually run in this chain pass?
+ *
+ * Project Alpha is the PA_SLOT_SYNTH node. The standalone call in chain_condition() exists only for chains built without that node
+ * (the host suites that drive alpha directly): a chain that HAS the node must let run_slot_range() run it at its chain position and
+ * must never run it a second time. In particular, a bypassed node keeps its state until pa_fx_chain_collect_garbage() frees it, so
+ * testing `alpha->enabled` alone would keep the synth (and its CPU cost) alive after the block was switched off. */
+static inline int alpha_runs_in_chain(const pa_fx_chain_t *chain, const alpha_state_t *alpha) {
+    if (!alpha || !alpha->enabled) return 0;
+    const fx_node_t *synth = chain->slots[PA_SLOT_SYNTH];
+    if (synth) return (synth->state == alpha && synth->active) ? 1 : 0;
+    return 1;                                                             /* no SYNTH node: the standalone path owns it */
+}
+
 /* The input conditioning (runs first, on whichever core runs the front of the chain). */
 static void chain_condition(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int n) {
     PA_LVL(0, buf_L, n);
@@ -778,7 +790,14 @@ static void chain_condition(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R
     PA_ISR_CP(0x31);
     if (chain->gate_thresh_q21) run_global_gate(chain, buf_L, n);
     PA_ISR_CP(0x32);
-    if (buf_R) {
+    /* If Project Alpha is invoked standalone outside PA_SLOT_SYNTH (e.g. unit tests without fx_synth_new active),
+     * process here; when PA_SLOT_SYNTH is present in the chain, run_slot_range executes it at its chain position! */
+    alpha_state_t *alpha = alpha_get_active();
+    const int synth_slot_present = (chain->slots[PA_SLOT_SYNTH] != 0);
+    if (alpha && !synth_slot_present && alpha_runs_in_chain(chain, alpha)) {
+        alpha_process_block_q21(alpha, buf_L, buf_L, buf_R, n);
+        if (chain->meter) cpu_meter_add(chain->meter, PA_ST_DRIVE, 85000u);
+    } else if (buf_R) {
         for (int i = 0; i < n; i++) buf_R[i] = buf_L[i];
     }
     PA_LVL(1, buf_L, n);
@@ -810,6 +829,12 @@ static void chain_tail(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int
     }
 
     /* The limiter needs the whole block, so it runs after the per-sample loops. */
+    {
+        alpha_state_t *alpha = alpha_get_active();
+        if (alpha_runs_in_chain(chain, alpha)) {
+            alpha_post_output_gate_q21(alpha, buf_L, buf_R, n);
+        }
+    }
     apply_output_limiter_stereo(chain, buf_L, buf_R, n);
 #if !defined(PA_HOST_BUILD) && !defined(PA_HOST_SIM)
     pa_timing(0, plat_ticks24() - tail_t0);
@@ -851,6 +876,9 @@ void pa_fx_chain_set_core1_budget_us(uint32_t us) { s_core1_budget_us = us ? us 
 /* The first slot_order index core 1 runs: the amp at cut-1, plus as many of the active slots in front of it as fit its budget. The rest
  * (a drive pedal, the dynamics) runs on core 0 just before the hand-over, so neither core is asked for more than a block. */
 static int choose_core1_lo(const pa_fx_chain_t *chain, int cut) {
+    if (alpha_runs_in_chain(chain, alpha_get_active())) {
+        return cut - 1;                                                   /* Project Alpha runs on Core 0; Core 1 runs the NAM amp alone */
+    }
     uint32_t cost = 30u + k_slot_cost_us[PA_SLOT_AMP];                    /* input conditioning + the amp */
     int lo = cut - 1;
     for (int idx = cut - 2; idx >= 0; idx--) {

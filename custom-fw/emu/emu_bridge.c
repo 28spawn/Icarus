@@ -1449,12 +1449,12 @@ EMU_EXPORT int emu_get_ui(int what) {
 }
 
 extern volatile uint8_t g_pa_overload_force;
-extern volatile uint8_t g_pa_drive_os2, g_pa_cab_parts_limit, g_pa_gov_level;
+extern volatile uint8_t g_pa_cab_parts_limit, g_pa_gov_level;
 extern volatile uint32_t g_emu_slot_pk[8];
 EMU_EXPORT int emu_get_slot_peak(int slot) { return (slot >= 0 && slot < 8) ? (int)g_emu_slot_pk[slot] : 0; }      /* tests: the largest |sample| the slot produced since the last clear (Q21) */
 EMU_EXPORT void emu_clear_slot_peaks(void) { for (int i = 0; i < 8; i++) g_emu_slot_pk[i] = 0; }
-/* tests: set the load governor's level as the audio interrupt does (audio_alnk.c): 0 full, 1 drive at 2x, 2 + the cabinet's partitions cut to 8 */
-EMU_EXPORT void emu_set_governor(int level) { g_pa_gov_level = (uint8_t)level; g_pa_drive_os2 = (uint8_t)(level >= 1); g_pa_cab_parts_limit = (uint8_t)(level >= 2 ? 8 : 16); }
+/* tests: set the load governor's level as the audio interrupt does (audio_alnk.c): 0/1 full, 2 cuts the cabinet's partitions to 8 */
+EMU_EXPORT void emu_set_governor(int level) { g_pa_gov_level = (uint8_t)level; g_pa_cab_parts_limit = (uint8_t)(level >= 2 ? 8 : 16); }
 /* tests: the USB audio driver (usb_ble.c) without a host: open both directions, take the recording packets the unit would send, give it playback packets */
 EMU_EXPORT void emu_usb_audio_start(void) { pa_usb_audio_set_rate(&g_usb_ble, 44100u); pa_usb_audio_capture_start(&g_usb_ble); pa_usb_audio_playback_start(&g_usb_ble); }
 EMU_EXPORT int  emu_usb_capture_read(uint8_t *out, int cap) { return (int)pa_usb_audio_ep3_in_fill(&g_usb_ble, out, (uint32_t)cap); }

@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(FW, "tools"))
 import pack_ufw as P   # noqa: E402
 
 STOCK = os.environ.get("STOCK_FWSC", os.path.join(str(Path.home()), "Downloads", "Pocket AMP.fwsc"))
-CUSTOM = os.path.join(FW, "Pocket_AMP_Custom.fwsc")
+CUSTOM = os.path.join(FW, "Project_Alpha.fwsc")
 
 ok = True
 

@@ -337,7 +337,7 @@ check("error" in js(["namJson", list(b"{not json"), "x.nam"])[0], "a file that i
 
 print("=== the firmware files the page accepts ===")
 import jl_app_area as JA2
-fw = os.path.join(ROOT, "Pocket_AMP_Custom.fwsc"); ab = os.path.join(ROOT, "Pocket_AMP_Custom_app_area.bin")
+fw = os.path.join(ROOT, "Project_Alpha.fwsc"); ab = os.path.join(ROOT, "Project_Alpha_app_area.bin")
 if os.path.exists(fw) and os.path.exists(ab):
     blob = open(fw, "rb").read(); want = open(ab, "rb").read()
     r = js(["areaFromFile", list(blob)])[0]

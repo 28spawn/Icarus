@@ -11,7 +11,7 @@ custom-fw/tools/flash_unit.py - the whole flashing process in the order it must 
     4  flash      you type WRITE; every sector is erased, written and read back.
     5  confirm    the whole chip is read back and must equal the expected image everywhere the tool writes; the result and the new chip's checksum are printed.
 
-    python custom-fw/tools/flash_unit.py [--image custom-fw/Pocket_AMP_Custom_app_area.bin] [--ref <the original backup dump1.bin>] [--enter-download-mode]
+    python custom-fw/tools/flash_unit.py [--image custom-fw/Project_Alpha_app_area.bin] [--ref <the original backup dump1.bin>] [--enter-download-mode]
     python custom-fw/tools/flash_unit.py --mock-flash <a dump>        a rehearsal with a simulated flash (no device, no command)
 
 Run it in an Administrator terminal on Windows (raw disk access). --image takes the .fwsc the build writes, the app area .bin, or the ORIGINAL M-VAVE "Pocket AMP.fwsc": the file decides what happens.
@@ -38,7 +38,7 @@ def classify(path: Path):
         try:
             flash = J.flash_from_any(blob)
         except Exception as e:
-            sys.exit(f"{path.name}: not a firmware file this tool knows ({e}). Use the .fwsc from the build, Pocket_AMP_Custom_app_area.bin, or the original Pocket AMP.fwsc")
+            sys.exit(f"{path.name}: not a firmware file this tool knows ({e}). Use the .fwsc from the build, Project_Alpha_app_area.bin, or the original Pocket AMP.fwsc")
         flash = flash[0] if isinstance(flash, tuple) else flash
         area, how = bytes(flash[0x4000:0x4000 + P.APP_IMAGE_SIZE]), "a firmware container"
         if len(flash) < 0xB5000:
@@ -74,7 +74,7 @@ def enter_download_mode():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--image", default=str(FW / "Pocket_AMP_Custom_app_area.bin"), help="the app area image (532,480 bytes) the build writes")
+    ap.add_argument("--image", default=str(FW / "Project_Alpha_app_area.bin"), help="the app area image (532,480 bytes) the build writes")
     ap.add_argument("--ref", default=None, help="the ORIGINAL full-chip backup of this unit (default: <backup-dir>/original/dump1.bin)")
     ap.add_argument("--backup-dir", default=str(FW / "qa" / "backups" / "unit_snapshots"), help="where the pre-flash snapshots are saved")
     ap.add_argument("--enter-download-mode", action="store_true", help="step 0: send the command to the running unit first")
@@ -88,7 +88,7 @@ def main():
             pt += [k, v]
     image = Path(a.image)
     if not image.exists():
-        sys.exit(f"the file {image} does not exist: build first (powershell -File custom-fw/build.ps1); it writes Pocket_AMP_Custom.fwsc and Pocket_AMP_Custom_app_area.bin")
+        sys.exit(f"the file {image} does not exist: build first (powershell -File custom-fw/build.ps1); it writes Project_Alpha.fwsc and Project_Alpha_app_area.bin")
     kind, payload, how = classify(image)
     print(f"{image.name}: {how} -> {'WRITE the custom app area' if kind == 'custom' else 'RESTORE the original firmware'}")
     if kind == "custom":

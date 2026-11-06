@@ -87,7 +87,6 @@ void pa_alnk_silence_tx(void) {
 static void pa_alnk0_isr_body(void);
 extern void pa_backlight_isr_tick(void);       /* gpio_scan.c */
 extern void pa_gpio_scan_isr_tick(void);       /* gpio_scan.c */
-extern volatile uint8_t g_pa_drive_os2;          /* fx_drive.c */
 /* The audio interrupt's measured time, for the Performance page: the average and a peak that decays over a few seconds, in microseconds. */
 volatile uint32_t g_pa_isr_avg_us, g_pa_isr_peak_us;
 extern volatile uint8_t g_pa_cab_parts_limit;     /* fx_cab_ir.c */
@@ -213,7 +212,6 @@ void pa_alnk0_isr_c(void) {
             }
         }
         g_pa_gov_level = s_level;
-        g_pa_drive_os2 = (s_level >= 1u) ? 1u : 0u;
         g_pa_cab_parts_limit = (s_level >= 2u) ? 8u : 16u;
         ((volatile uint32_t *)(uintptr_t)0x01C7D4C0u)[0] = s_level | ((uint32_t)s_ema / 24u) << 8;   /* for the readout */
     }

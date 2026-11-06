@@ -23,9 +23,14 @@ d.emu_process_audio_f32.argtypes = [F, F, F, ctypes.c_int]
 inp = (ctypes.c_float * 64)(); oL = (ctypes.c_float * 64)(); oR = (ctypes.c_float * 64)()
 fails = 0
 
-# the firmware's slots (include/pa_fx.h) and the MIDI module numbers in the stock order
-DYN, DRIVE, AMP, CAB, EQ, MOD, DLY, REV = 0, 1, 2, 3, 4, 5, 6, 7
-MOD_SLOT = {0: DYN, 1: AMP, 2: MOD, 3: DLY, 4: REV, 5: CAB, 6: DRIVE, 7: EQ}
+# The focused 5-block chain (include/pa_fx.h): DYN, SYNTH, AMP, CAB, EQ.
+# Slots 5..7 still exist in the enum for preset/SysEx binary compatibility, but
+# they hold no node, so the legacy MOD/DLY/REV module numbers address nothing.
+DYN, SYNTH, AMP, CAB, EQ = 0, 1, 2, 3, 4
+DRIVE = SYNTH                                   # PA_SLOT_DRIVE aliases PA_SLOT_SYNTH
+# The stock module order, with the deleted MOD/DLY/REV falling back to SYNTH in
+# the stomp map (ui_app.c mod_slot): module 6 (DRIVE) is the synthesizer now.
+MOD_SLOT = {0: DYN, 1: AMP, 5: CAB, 6: SYNTH, 7: EQ}
 
 
 def check(ok, msg):
@@ -91,24 +96,26 @@ print("\n=== Preset volume (CC 7) and the modules on / off ===")
 cc(7, 127); tick(); check(ui(0) == 100, f"CC 7 = 127 -> preset volume 100 ({ui(0)})")
 cc(7, 0); tick();   check(ui(0) == 0, f"CC 7 = 0 -> 0 ({ui(0)})")
 cc(7, 64); tick();  check(ui(0) == 50, f"CC 7 = 64 -> 50 ({ui(0)})")
-cc(28 + 4, 127); tick()                                     # REV on (stock order FX, AMP, MOD, DLY, REV, CAB, DRIVE, EQ)
+cc(28 + 6, 127); tick()                                     # module 6 = DRIVE, which is PA_SLOT_SYNTH now
 on = active_mask()
-cc(28 + 4, 0); tick()
+cc(28 + 6, 0); tick()
 off = active_mask()
-check((on >> REV) & 1 == 1, "CC 32 = 127 sets the reverb ON")
-check((off >> REV) & 1 == 0, "CC 32 = 0 sets the reverb OFF (a set, not a toggle)")
-cc(28 + 4, 127); cc(28 + 4, 127); tick()
-check((active_mask() >> REV) & 1 == 1, "setting ON twice leaves it ON (a toggle would have switched it off)")
-cc(23, 127); tick()                                         # the older toggle, CC 23 = DLY, still works
-a1 = (active_mask() >> DLY) & 1
-cc(23, 127); tick()
-a2 = (active_mask() >> DLY) & 1
-check(a1 != a2, "the older toggle CC 23 (delay) still toggles")
+check((on >> SYNTH) & 1 == 1, "CC 34 = 127 sets the synthesizer ON")
+check((off >> SYNTH) & 1 == 0, "CC 34 = 0 sets the synthesizer OFF (a set, not a toggle)")
+cc(28 + 6, 127); cc(28 + 6, 127); tick()
+check((active_mask() >> SYNTH) & 1 == 1, "setting ON twice leaves it ON (a toggle would have switched it off)")
+cc(26, 127); tick()                                         # the older toggle, CC 26 = module 6 (DRIVE/SYNTH), still works
+a1 = (active_mask() >> SYNTH) & 1
+cc(26, 127); tick()
+a2 = (active_mask() >> SYNTH) & 1
+check(a1 != a2, "the older toggle CC 26 (DRIVE/SYNTH) still toggles")
+cc(23, 127); tick()                                         # module 3 = DLY, whose node no longer exists
+check(True, "a legacy module CC whose block is gone (CC 23 DLY) is ignored without effect")
 
 print("\n=== Direct knobs CC 102..118: every one reaches the right knob of the right block ===")
 KN = [(102, AMP, 0, "AMP gain"), (103, AMP, 5, "AMP level (master)"), (104, AMP, 1, "AMP bass"), (105, AMP, 2, "AMP mid"), (106, AMP, 3, "AMP treble"), (107, AMP, 4, "AMP presence"),
-      (108, DRIVE, 0, "DRIVE drive"), (109, DLY, 0, "DLY time"), (110, DLY, 1, "DLY feedback"), (111, DLY, 2, "DLY mix"), (112, REV, 0, "REV decay"), (113, REV, 3, "REV mix"),
-      (114, MOD, 0, "MOD rate"), (115, MOD, 1, "MOD depth"), (116, CAB, 0, "CAB level"), (117, CAB, 1, "CAB low cut"), (118, CAB, 2, "CAB high cut")]
+      (108, SYNTH, 0, "SYNTH cutoff (the old DRIVE direct knob)"),
+      (116, CAB, 0, "CAB level"), (117, CAB, 1, "CAB low cut"), (118, CAB, 2, "CAB high cut")]
 for ccn, slot, k, name in KN:
     cc(ccn, 0); tick(1)
     before = [param(slot, j) for j in range(6)]
@@ -120,30 +127,31 @@ cc(102, 64); tick(); check(param(AMP, 0) == 50, f"CC 102 = 64 -> 50 % ({param(AM
 d.emu_midi_event(0xB3, 102, 127); tick(); check(param(AMP, 0) == 100, "the channel does not matter (omni): CC 102 on channel 4")
 
 print("\n=== NRPN: effect knobs, type, enable ===")
-nrpn(3, 1, 127, 127); tick(); check(param(DLY, 1) == 100, f"NRPN DLY param 1 = 16383 -> feedback 100 % ({param(DLY, 1)})")
-nrpn(3, 1, 64); tick();       check(param(DLY, 1) == 50, f"NRPN with the data entry's high half only (CC 6 = 64) -> 50 % ({param(DLY, 1)})")
-nrpn(3, 1, 0, 0); tick();     check(param(DLY, 1) == 0, f"NRPN 14-bit 0 -> 0 % ({param(DLY, 1)})")
-nrpn(2, 0x60, 100, 0); tick(); check(param(MOD, 0) == 78, f"NRPN MOD native knob 0 (0x60), 100 * 128 / 16383 -> 78 % ({param(MOD, 0)})")
-nrpn(4, 0x63, 127, 127); tick(); check(param(REV, 3) == 100, "NRPN REV native knob 3 (0x63) = max")
+nrpn(6, 1, 127, 127); tick(); check(param(SYNTH, 1) == 100, f"NRPN SYNTH param 1 = 16383 -> resonance 100 % ({param(SYNTH, 1)})")
+nrpn(6, 1, 64); tick();       check(param(SYNTH, 1) == 50, f"NRPN with the data entry's high half only (CC 6 = 64) -> 50 % ({param(SYNTH, 1)})")
+nrpn(6, 1, 0, 0); tick();     check(param(SYNTH, 1) == 0, f"NRPN 14-bit 0 -> 0 % ({param(SYNTH, 1)})")
+nrpn(6, 0x60, 100, 0); tick(); check(param(SYNTH, 0) == 78, f"NRPN SYNTH native knob 0 (0x60), 100 * 128 / 16383 -> 78 % ({param(SYNTH, 0)})")
+nrpn(6, 0x63, 127, 127); tick(); check(param(SYNTH, 3) == 100, "NRPN SYNTH native knob 3 (0x63) = max")
 cc(6, 100); cc(38, 5); tick()                               # a data entry with the selection of the last NRPN still held: it applies to it again (standard NRPN behaviour)
 cc(101, 127); cc(100, 127)                                  # RPN null: the selection is cleared
-before = param(REV, 3)
+before = param(SYNTH, 3)
 cc(6, 10); cc(38, 3); tick()
-check(param(REV, 3) == before, "after the RPN null a data entry changes nothing (no selection)")
-nrpn(4, 0x65, 127, 127); tick()                             # REV has 4 knobs: knob 5 does not exist
-check(param(REV, 3) == before and all(param(REV, j) in range(0, 101) for j in range(6)), "a knob the block does not have (REV knob 5) is ignored")
+check(param(SYNTH, 3) == before, "after the RPN null a data entry changes nothing (no selection)")
+cab_before = [param(CAB, j) for j in range(6)]
+nrpn(5, 0x65, 127, 127); tick()                             # CAB has 3 knobs: knob 5 does not exist
+check([param(CAB, j) for j in range(6)] == cab_before, "a knob the block does not have (CAB knob 5) is ignored")
 nrpn(11, 0, 127, 127); tick()
 check(True, "an NRPN module number out of range (11) is ignored without effect")
-t0 = d.emu_get_slot_type(DLY)
-nrpn(3, 0x40, 0x20 + 1); tick()
-check(d.emu_get_slot_type(DLY) == 1, f"NRPN DLY type 0x40 = 0x21 -> the firmware's own type 1 ({d.emu_get_slot_type(DLY)}; was {t0})")
-nrpn(3, 0x40, 0x20 + 0); tick()
-check(d.emu_get_slot_type(DLY) == 0, "NRPN DLY type back to 0")
-nrpn(3, 0x40, 0x7F); tick()
-check(d.emu_get_slot_type(DLY) == 0, "a type number the block does not have (0x7F) is ignored")
-nrpn(5, 0x41, 127); tick(); on = (active_mask() >> CAB) & 1
-nrpn(5, 0x41, 0); tick();   off = (active_mask() >> CAB) & 1
-check(on == 1 and off == 0, f"NRPN CAB param 0x41 turns the block on ({on}) and off ({off})")
+t0 = d.emu_get_slot_type(SYNTH)
+nrpn(6, 0x40, 0x20 + 2); tick()
+check(d.emu_get_slot_type(SYNTH) == 2, f"NRPN SYNTH type 0x40 = 0x22 -> the firmware's own type 2 ({d.emu_get_slot_type(SYNTH)}; was {t0})")
+nrpn(6, 0x40, 0x20 + 0); tick()
+check(d.emu_get_slot_type(SYNTH) == 0, "NRPN SYNTH type back to 0")
+nrpn(6, 0x40, 0x7F); tick()
+check(d.emu_get_slot_type(SYNTH) == 0, "a type number the block does not have (0x7F) is ignored")
+nrpn(6, 0x41, 127); tick(); on = (active_mask() >> SYNTH) & 1
+nrpn(6, 0x41, 0); tick();   off = (active_mask() >> SYNTH) & 1
+check(on == 1 and off == 0, f"NRPN SYNTH param 0x41 turns the block on ({on}) and off ({off})")
 
 print("\n=== NRPN module 8 GLOBAL: the general settings (each one marks the settings to be saved) ===")
 GL = [(0, 14, 1, 2, "input gain D=14 -> +2 dB"), (0, 0, 1, -12, "input gain D=0 -> -12 dB"), (1, 50, 2, -30, "gate D=50 -> -30 dB"), (1, 0, 2, -80, "gate D=0 -> -80 dB (off)"),
@@ -192,7 +200,7 @@ cc(86, 127); tick(); check(ui(24) == 1, "CC 86 = 127 plays it")
 cc(86, 0); tick()
 nrpn(10, 0, 33); tick(); check(ui(0) == 33, f"PRESET volume 33 ({ui(0)})")
 nrpn(10, 3, 5); tick(); check(ui(26) == CAB, f"PRESET stomp map 0 = module 5 (CAB) -> slot {ui(26)}")
-nrpn(10, 6, 3); tick(); check(ui(29) == DLY, f"PRESET stomp map 3 = module 3 (DLY) -> slot {ui(29)}")
+nrpn(10, 6, 3); tick(); check(ui(29) == SYNTH, f"PRESET stomp map 3 = module 3 (the old DLY number) -> slot {ui(29)} (SYNTH)")
 nrpn(10, 4, 9); tick(); check(ui(27) != 9, "a stomp map module number above 7 is ignored")
 
 print("\n=== play mode, tuner ===")

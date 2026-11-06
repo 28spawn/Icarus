@@ -41,9 +41,9 @@ function Invoke-Checked {
 # a failed build can never leave a stale image behind to be flashed by accident, and they
 # are written again only at the end, when every step has passed.
 $AppBin    = Join-Path $RepoRoot "custom-fw\build_app.bin"
-$OutUfw    = Join-Path $RepoRoot "custom-fw\Pocket_AMP_Custom.ufw"
-$OutFwsc   = Join-Path $RepoRoot "custom-fw\Pocket_AMP_Custom.fwsc"
-$OutArea   = Join-Path $RepoRoot "custom-fw\Pocket_AMP_Custom_app_area.bin"      # the app area (flash 0x4000..0x85FFF): what the web editor and jl_safe_flash.py take
+$OutUfw    = Join-Path $RepoRoot "custom-fw\Project_Alpha.ufw"
+$OutFwsc   = Join-Path $RepoRoot "custom-fw\Project_Alpha.fwsc"
+$OutArea   = Join-Path $RepoRoot "custom-fw\Project_Alpha_app_area.bin"      # the app area (flash 0x4000..0x85FFF): what the web editor and jl_safe_flash.py take
 $TemplateFwsc = if ($env:STOCK_FWSC -and (Test-Path $env:STOCK_FWSC)) {
     $env:STOCK_FWSC
 } elseif (Test-Path (Join-Path $RepoRoot "Pocket AMP.fwsc")) {
@@ -87,6 +87,7 @@ $manifest = Read-SourceManifest
 function Srcs([string]$t) { @(Get-SourceFiles -Target $t -Sections $manifest | ForEach-Object { "custom-fw/" + $_ }) }
 
 $dspSrcs   = Srcs "host_dsp"
+$alphaSrcs = @(Get-SourceFiles -Target "g_alpha" -Sections $manifest | ForEach-Object { "custom-fw/" + $_ })
 $meterSrc  = Srcs "host_meter"
 
 function Run-HostTest {
@@ -140,20 +141,10 @@ Run-HostTest -Name "pa_test_usb_midi_e2e" -Source "custom-fw/test/test_usb_midi_
 Run-HostTest -Name "pa_test_usb_desc" -Source "custom-fw/test/test_usb_desc.c" -Srcs @()
 Run-HostTest -Name "pa_test_biquad" -Source "custom-fw/test/test_biquad.c" -Srcs @("custom-fw/src/dsp/pa_biquad.c")
 Run-HostTest -Name "pa_test_stereo_spread" -Source "custom-fw/test/test_stereo_spread.c" -Srcs @()
-# Changing the reverb type while the audio interrupt runs (it used to hang the unit when scrolled from Plate to Ambience: a write through a NULL line buffer).
-Run-HostTest -Name "pa_test_reverb_switch_race" -Source "custom-fw/test/test_reverb_switch_race.c" -Srcs @() -Extra @("-lm")
-# Turning the delay's knobs while a note rings must not click (TIME glides, FEEDBACK / MIX are smoothed).
-# Changing the reverb's type while it rings: the wet fades out, the type changes in the audio thread, the wet fades back (every pair of the eight types).
-Run-HostTest -Name "pa_test_reverb_type_clicks" -Source "custom-fw/test/test_reverb_type_clicks.c" -Srcs @("custom-fw/src/fx/fx_reverb.c") -Extra @("-lm")
-Run-HostTest -Name "pa_test_delay_clicks" -Source "custom-fw/test/test_delay_clicks.c" -Srcs @() -Extra @("-lm")
 Run-HostTest -Name "pa_test_display_list" -Source "custom-fw/test/test_display_list.c" -Srcs @("custom-fw/src/board/ui_5x7.c") -Extra @("-DPA_EMU_DLL=1")
 
 # The WaveNet CPU-stage assembly, which no host suite runs, executed in an interpreter against the C reference (skips without the toolchain).
 Invoke-Checked "the WaveNet kernel emulation" { python (Join-Path $PSScriptRoot "test/test_wn_asm_emu.py") }
-
-# The reverb: tank regions must be disjoint, and the decay knob must produce the
-# RT60 its comment claims (measured with an impulse, not assumed).
-Run-HostTest -Name "pa_test_reverb" -Source "custom-fw/test/test_reverb.c" -Srcs $dspSrcs
 
 # The DSP pool with every effect on, measured by the DEVICE allocator
 # (-DPA_POOL_TEST) rather than budgeted by hand.
@@ -193,6 +184,13 @@ Run-HostTest -Name "pa_test_fft_conv_mac" -Source "custom-fw/test/test_fft_conv_
 
 # The chromatic tuner (YIN pitch detector, hold, stability): synthetic guitar strings, detuned, noisy, decaying, a peg turned.
 Run-HostTest -Name "pa_test_tuner" -Source "custom-fw/test/test_tuner.c" -Srcs @("custom-fw/src/dsp/tuner.c") -Extra @("-lm")
+
+# Project Alpha Guitar Synthesizer unit & integration test suites
+Run-HostTest -Name "pa_test_alpha_env" -Source "custom-fw/test/project_alpha/test_envelope.c" -Srcs @("custom-fw/src/effects/project_alpha/alpha_env.c") -Extra @("-lm")
+Run-HostTest -Name "pa_test_alpha_filter" -Source "custom-fw/test/project_alpha/test_filter.c" -Srcs @("custom-fw/src/effects/project_alpha/alpha_filter.c", "custom-fw/src/effects/project_alpha/alpha_analog.c", "custom-fw/src/effects/project_alpha/alpha_env.c") -Extra @("-lm")
+Run-HostTest -Name "pa_test_alpha_osc" -Source "custom-fw/test/project_alpha/test_oscillator.c" -Srcs @("custom-fw/src/effects/project_alpha/alpha_osc.c") -Extra @("-lm")
+Run-HostTest -Name "pa_test_alpha_pitch" -Source "custom-fw/test/project_alpha/test_pitch.c" -Srcs @("custom-fw/src/effects/project_alpha/alpha_pitch.c") -Extra @("-lm")
+Run-HostTest -Name "pa_test_alpha_chain" -Source "custom-fw/test/project_alpha/test_audio_chain.c" -Srcs $dspSrcs -Extra @("-lm")
 
 Run-HostTest -Name "pa_test_full" -Source "custom-fw/test/test_full_firmware.c" -Srcs (Srcs "host_full")
 
@@ -237,7 +235,7 @@ $verStr = ("{0}.{1:D2}" -f $verMajor, $verMinor)
 
 $packNum = 194
 $buildName = "Onyx"
-$boardPrefix = if ($Board -eq "blackbox") { "BlackBox_Onyx" } else { "Pocket_AMP_Onyx" }
+$boardPrefix = if ($Board -eq "blackbox") { "BlackBox_Alpha" } else { "Project_Alpha" }
 $expSuffix = if ($Experimental -or ((git branch --show-current 2>$null) -like "experimental*")) { "_EXPERIMENTAL" } else { "" }
 $releaseBaseName = ("{0}_{1}{2}" -f $boardPrefix, $verStr, $expSuffix)
 $buildCode = ("{0}-{1}" -f $releaseBaseName, $buildNum)

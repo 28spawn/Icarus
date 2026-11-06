@@ -45,7 +45,7 @@ The script will:
    clang -target pi32v2 -mcpu=r3 -O2 -Iinclude -nostdlib ...
    ```
 3. Link into `build_app.bin` with `app.ld`.
-4. Package valid `Pocket_AMP_Custom.ufw` and `Pocket_AMP_Custom.fwsc` firmware containers.
+4. Package valid `Project_Alpha.ufw` and `Project_Alpha.fwsc` firmware containers.
 
 ### Emulator DLL Compilation
 ```powershell

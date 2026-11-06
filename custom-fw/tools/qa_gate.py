@@ -68,7 +68,7 @@ HW_TESTS = {
     "HW-03": "30 min idle: no reset, no hang, UI keeps updating",
     "HW-04": "clean audio in->out: quick check (2 min: 1 min dry + 1 min heavy DSP) or full release (10 min: 5 min dry + 5 min heavy DSP), 0 dropouts, xrun=0",
     "HW-05": "every button, combo and the encoder do the documented action",
-    "HW-06": "every effect block and amp model: audible on, clean bypass",
+    "HW-06": "every block (DYN, SYNTH, AMP, CAB, EQ) and every model: audible on, clean bypass",
     "HW-07": "presets P01-P80 switch click-free; save/reboot behaves as documented",
     "HW-08": "tuner within +/-2 cents at 440 Hz; mute works",
     "HW-09": "Groove Station: 40/240 BPM, exact sample-boundary timing (0 drift/dropouts, jitter < 1 block)",
@@ -118,6 +118,10 @@ IMPACT = [
     ("custom-fw/src/dsp/*",              "HW-01 HW-02 HW-04 HW-06 HW-10 HW-16"),
     ("custom-fw/src/nam/*",              "HW-01 HW-02 HW-04 HW-06 HW-10 HW-16"),
     ("custom-fw/src/fx/*",               "HW-01 HW-02 HW-04 HW-06 HW-10 HW-16"),
+    # Project Alpha is the PA_SLOT_SYNTH block: its DSP, pitch tracker and
+    # factory presets reach the audio path, so it needs the same hardware
+    # bench coverage as the rest of the chain.
+    ("custom-fw/src/effects/project_alpha/*", "HW-01 HW-02 HW-04 HW-06 HW-10 HW-16"),
     ("custom-fw/src/sys/preset.c",       "HW-01 HW-02 HW-07 HW-15 HW-20"),
     ("custom-fw/src/sys/settings.c",     "HW-01 HW-02 HW-07 HW-15"),
     ("custom-fw/src/sys/pa_user_nam.c",  "HW-01 HW-02 HW-06 HW-10 HW-15"),
@@ -175,8 +179,10 @@ FUNCTIONAL = [
     ("F-18", True,  ["{py}", "custom-fw/tools/swap_click_probe_emu.py", "--models", "--governor", "--limit", "4.0", "--dll", "{dll}"], "dll"),
     # any host frame count: no crackle from partial 64-sample blocks (emulator field report)
     ("F-13", True,  ["{py}", "custom-fw/emu/test_block_adapter.py", "{dll}"], "dll"),
-    # delay / reverb end to end: echo times = the screen, stereo, dry level, tails, with a capture
-    ("F-14", True,  ["{py}", "custom-fw/emu/test_dly_rev.py", "{dll}"], "dll"),
+    # the focused 5-block chain's Project Alpha node end to end: all 12 factory
+    # presets are audible stereo voices, a live bypass stops it at once, and
+    # the preset survives a bypass/on cycle
+    ("F-14", True,  ["{py}", "custom-fw/emu/test_synth.py", "{dll}"], "dll"),
     # factory presets 1..40: generated, loaded, playing at level
     # the 40 presets stay level-matched on the real recordings they were calibrated on (skipped when those recordings are not on this machine)
     ("F-20", True,  ["{node}", "custom-fw/wasm/test_jack.js", "{wasm}"], "wasm"),
@@ -186,9 +192,6 @@ FUNCTIONAL = [
     ("F-24", True,  ["{node}", "custom-fw/wasm/test_para.js", "{wasm}"], "wasm"),
     ("F-25", True,  ["{node}", "custom-fw/wasm/test_preset.js", "{wasm}"], "wasm"),
     ("F-26", True,  ["{node}", "custom-fw/wasm/test_sysex.js", "{wasm}"], "wasm"),
-    # the drive on every kind of preset, through the real UI (a pool block reused without
-    # zeroing made it silent after preset changes)
-    ("F-27", True,  ["{node}", "custom-fw/wasm/test_preset_drive.js", "{wasm}"], "wasm"),
 ]
 
 # The host C suites build.ps1 does not run.
@@ -207,15 +210,8 @@ EXTRA_C_SUITES = [
     # the float FFT cab prototype: impulse, direct convolution, and the firmware's Q18 cab path
     ("U-05", "custom-fw/bench/test_fft_conv.c",
      ["-Icustom-fw/bench", "custom-fw/bench/fft_conv.c", "custom-fw/src/dsp/hw_accel.c", "-lm"]),
-    # every reverb type at high decay / high mix: tank headroom, tail smoothness, no DC,
-    # Shimmer keeps sounding and shifts a clean octave up (field report 2026-10-22)
-    ("U-06", "custom-fw/test/test_reverb_modes.c", ["custom-fw/src/fx/fx_reverb.c", "-lm"]),
     # the DYN block's noise gate: flat detection, unity when open, hysteresis, knob laws
     ("U-07", "custom-fw/test/test_gate.c", ["custom-fw/src/fx/fx_dynamics.c", "-lm"]),
-    # DRV: LEVEL law, loudness match, GRIT range, TS clean path, RAT ceiling, aliasing
-    ("U-08", "custom-fw/test/test_drive.c", ["custom-fw/src/fx/fx_drive.c", "-lm"]),
-    # MOD: headroom, mix law, mono sum, phaser range, auto filter, RATE in Hz, "---" knobs
-    ("U-09", "custom-fw/test/test_mod.c", ["custom-fw/src/fx/fx_mod.c", "-lm"]),
     # EQ: 5-BAND unchanged, LOW/HIGH CUT and PARAMETRIC-3 at the values the screen shows
     ("U-11", "custom-fw/test/test_eq.c", ["custom-fw/src/fx/fx_eq.c", "-lm"]),
     # DYN compressors (COMP+GATE, COMP): real ratio, attack/release, makeup, no ripple, THRESH
@@ -666,7 +662,7 @@ def stage_functional(g: Gate):
 def stage_image(g: Gate):
     print("\n== I: image checks (safe-to-flash) ==")
     app = FW / "build_app.bin"
-    fwsc = FW / "Pocket_AMP_Custom.fwsc"
+    fwsc = FW / "Project_Alpha.fwsc"
     elf = FW / "build_pi32" / "pocket_amp_custom.elf"
     stock_path = Path(os.environ.get("POCKET_AMP_STOCK_FWSC") or os.environ.get("STOCK_FWSC") or g.args.stock or ps1_value("TemplateFwsc") or (Path.home() / "Downloads" / "Pocket AMP.fwsc"))
     missing = [p.name for p in (app, fwsc, elf) if not p.exists()]

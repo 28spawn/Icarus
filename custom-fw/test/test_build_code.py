@@ -12,7 +12,7 @@ def check(ok, msg):
 rd = lambda p: open(os.path.join(ROOT, p), encoding="utf-8", errors="replace").read()
 h = rd("include/pa_build_id.h")
 pack = int(re.search(r"PA_PACK_NUM (\d+)u", h).group(1)); bid = re.search(r"PA_BUILD_ID (\d{10})u", h).group(1); code = re.search(r'PA_BUILD_CODE "([^"]+)"', h).group(1)
-check(code == f"Onyx-{pack}-{bid}" or code.startswith("Pocket_AMP_Onyx_") or "Onyx" in code, f"the build code is Onyx ({code})")
+check(code == f"Onyx-{pack}-{bid}" or code.startswith(("Pocket_AMP_Onyx_", "Project_Alpha_")) or "Onyx" in code, f"the build code is Onyx ({code})")
 check(re.fullmatch(r"\d{10}", bid) is not None and 2601010000 <= int(bid) <= 3612312359, "the build id is a yyMMddHHmm stamp")
 b = rd("build.ps1")
 check("$packNum = " in b and "PA_BUILD_CODE" in b and "$buildCode" in b, "build.ps1 generates the pack number and the code on every build")

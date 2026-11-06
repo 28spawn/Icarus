@@ -11,7 +11,7 @@ if not clang:
 pk = sys.argv[1:]
 if not pk:
     orig = os.path.expanduser("~/Downloads/Pocket AMP.fwsc")
-    pk = ([orig] if os.path.exists(orig) else []) + sorted(glob.glob(os.path.join(ROOT, "release", "*", "*.fwsc")))[-1:] + sorted(glob.glob(os.path.join(ROOT, "qa", "backups", "*", "Pocket_AMP_Custom_pack*.fwsc")))[-1:]
+    pk = ([orig] if os.path.exists(orig) else []) + sorted(glob.glob(os.path.join(ROOT, "release", "*", "*.fwsc")))[-1:] + sorted(glob.glob(os.path.join(ROOT, "qa", "backups", "*", "Project_Alpha_pack*.fwsc")))[-1:]
 if not pk:
     print("FAIL  no package to serve"); sys.exit(1)
 exe = os.path.join(tempfile.mkdtemp(prefix="pa_ota_"), "t.exe")

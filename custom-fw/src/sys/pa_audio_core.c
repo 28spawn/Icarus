@@ -23,6 +23,10 @@
 #include "../dsp/fixedpoint.h"
 #include "pa_mix_limiter.h"
 #include "../dsp/pa_stereo_spread.h"
+#include "../effects/project_alpha/alpha.h"
+
+__attribute__((weak)) alpha_state_t *alpha_get_active(void) { return 0; }
+__attribute__((weak)) void alpha_poll_background(alpha_state_t *s) { (void)s; }
 /* Master level hold (device only): from power-on the output is SILENT until the front-panel MASTER knob has been read, then it goes to the knob's level (or, if the knob cannot be read
  * within 5 s, to the saved OUTPUT LEVEL). Before this the master started at the saved level, which is 100 % when nothing is saved (settings are not written to the flash yet), and the knob
  * was first read only after 4 s: the first seconds after every power-on were the input noise at full volume (bench 2026-11-03: the input peaked at 17 % with nothing played). */
@@ -685,6 +689,25 @@ void pa_audio_core_tick(pa_fx_chain_t *chain, pa_ui_ctx_t *ui, pa_drums_t *drums
     }
     PA_CP(0x66);
     pa_ui_handle_inputs(ui, chain, btn, enc, pots);
+    /* Project Alpha asynchronous background pitch tracker poll & interactive UI animation tick */
+    {
+        alpha_state_t *as = alpha_get_active();
+        if (as) {
+            uint8_t prev_note  = as->pitch.midi_note;
+            uint8_t prev_valid = as->pitch.valid;
+            alpha_poll_background(as);
+            static uint32_t s_alpha_ui_ms;
+            if (ui && ui->view == PA_UI_VIEW_PROJECT_ALPHA) {
+                const int note_changed = (as->pitch.midi_note != prev_note || as->pitch.valid != prev_valid);
+                const int anim_active  = (as->live_peak_out > 0.01f || as->adsr.stage != ALPHA_ENV_IDLE || as->params.lfo_depth > 0.01f);
+                const uint32_t period  = note_changed ? 45u : (anim_active ? 66u : 220u);
+                if ((uint32_t)(now - s_alpha_ui_ms) >= period) {
+                    ui->dirty = 1;
+                    s_alpha_ui_ms = now;
+                }
+            }
+        }
+    }
     PA_CP(0x67);
     pa_fx_chain_collect_garbage(chain);          /* frees blocks the ISR faded out */
     PA_CP(0x6A);

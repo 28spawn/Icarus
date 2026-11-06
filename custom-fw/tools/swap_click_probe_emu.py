@@ -18,9 +18,13 @@ import numpy as np
 FW = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_swapclick_"), "flash.bin")
 N = 64
-DYN, DRIVE, AMP, CAB, EQ, MOD, DLY, REV = range(8)
-SLOT_MODULE = {DYN: 0, AMP: 1, MOD: 2, DLY: 3, REV: 4, CAB: 5, DRIVE: 6, EQ: 7}      # the NRPN module numbers (MIDI-MAP-CUSTOM.md)
-SLOT_NAME = ["DYN", "DRIVE", "AMP", "CAB", "EQ", "MOD", "DLY", "REV"]
+DYN, SYNTH, AMP, CAB, EQ = range(5)
+# The NRPN module numbers keep the stock order for binary compatibility
+# (MIDI-MAP-CUSTOM.md): 0 FX/DYN, 1 AMP, 5 CAB, 6 SYNTH (the old DRIVE
+# module), 7 EQ. Modules 2..4 (MOD/DLY/REV) have no node in the focused
+# 5-block chain, so they are not probed.
+SLOT_MODULE = {DYN: 0, AMP: 1, CAB: 5, SYNTH: 6, EQ: 7}
+SLOT_NAME = ["DYN", "SYNTH", "AMP", "CAB", "EQ"]
 
 
 class Rig:
@@ -108,7 +112,7 @@ def main():
         add(f"preset P{frm + 1:02d} -> P{to + 1:02d}", measure(rig, lambda to=to: rig.pc(to)))
     if a.models:
         rig.pc(9); rig.run(400)
-        for slot in (AMP, CAB, DRIVE, MOD, DLY, REV, EQ, DYN):
+        for slot in (SYNTH, AMP, CAB, EQ, DYN):
             t = 0
             cur = rig.d.emu_get_slot_type(slot)
             tried = 0
@@ -124,7 +128,7 @@ def main():
                 t += 1
                 tried += 1
     if a.governor:
-        # the load governor changes the drive's oversampling (4x -> 2x) and the cabinet's partitions (16 -> 8) in the middle of the signal, with no fade (audio_alnk.c); a high-gain preset with a long cabinet
+        # the load governor changes its level and the cabinet's partition count (16 -> 8) in the middle of the signal, with no fade (audio_alnk.c); a high-gain preset with a long cabinet
         rig.d.emu_set_governor.argtypes = [ctypes.c_int]
         for pset in (9, 5, 24, 0):                                          # P10 metal, P06, P25, P01 clean
             for lv_from, lv_to in ((0, 1), (1, 2), (2, 1), (1, 0), (0, 2), (2, 0)):

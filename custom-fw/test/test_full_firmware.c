@@ -121,12 +121,12 @@ static int fails = 0;
 int main(void) {
     printf("=== M-VAVE Pocket Amp Custom Firmware — Full Verification Suite ===\n");
 
-    /* 1. Initialize 8-Slot Chain (DYN -> DRV -> AMP -> CAB -> EQ -> MOD -> DLY -> REV) */
+    /* 1. Initialize 8-Slot Chain (DYN -> SYNTH -> AMP -> CAB -> EQ; slots 5..7 unused) */
     pa_fx_chain_t chain;
     fx_node_t *cab_nd = fx_cab_ir_new();
     pa_fx_chain_init(&chain, 0, cab_nd);
     /* Enable all 8 slots for full-chain verification and C7 reclaim test */
-    for (int s = 0; s < PA_SLOT_COUNT; s++) {
+    for (int s = 0; s < PA_ACTIVE_SLOT_COUNT; s++) {
         pa_fx_chain_set_slot_enabled_now(&chain, s, 1);
     }
     printf("[BR-3] 8-Slot FX Chain initialized: active SRAM = %ld B (%.1f KB)\n",
@@ -143,7 +143,7 @@ int main(void) {
         }
         pa_fx_chain_run(&chain, block, PA_BLOCK_N);
     }
-    printf("[BR-3] Processed 30 blocks through DYN->DRV->CAB->EQ->MOD->DLY->REV: sample[0]=%d\n",
+    printf("[BR-3] Processed 30 blocks through DYN->SYNTH->AMP->CAB->EQ: sample[0]=%d\n",
            block[0]);
     int blk_finite = 1;
     int32_t blk_peak = 0;
@@ -158,11 +158,11 @@ int main(void) {
 
     /* 3. Verify C7 Dynamic SRAM Reclaim when bypassing Reverb +Modulation */
     long before_reclaim = g_sram_cur;
-    pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_REVERB, 0);
-    pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_MOD, 0);
-    printf("[BR-3] Bypassed REVERB + MOD -> Reclaimed %ld B SRAM (remaining: %ld B)\n",
+    pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_SYNTH, 0);
+    pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_EQ, 0);
+    printf("[BR-3] Bypassed SYNTH + EQ -> Reclaimed %ld B SRAM (remaining: %ld B)\n",
            before_reclaim - g_sram_cur, g_sram_cur);
-    CHECK(before_reclaim - g_sram_cur > 0, "Bypassed REVERB + MOD reclaimed SRAM (> 0 B, got %ld B)", before_reclaim - g_sram_cur);
+    CHECK(before_reclaim - g_sram_cur > 0, "Bypassed SYNTH + EQ reclaimed SRAM (> 0 B, got %ld B)", before_reclaim - g_sram_cur);
 
     /* 4. Verify Big Rock 4 Chromatic Tuner Pitch Detection on A4 = 440.0 Hz */
     pa_tuner_state_t tuner;

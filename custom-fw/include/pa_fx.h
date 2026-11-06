@@ -34,19 +34,19 @@ extern volatile uint8_t g_pa_stereo_allow;
 /* Set by the cabinet in a block where it produced two different channels, cleared at the top of every chain run. */
 extern volatile uint8_t g_pa_cab_stereo;
 
-/* Effect Slot IDs (Manual Page 4 & Page 7: "6+1 effects simultaneously, customizable order"):
- *   - PA_SLOT_DYNAMICS (AI Noise Gate++ / AI Gate MS + Boost / Compress)
- *   - PA_SLOT_DRIVE    (6x V105 MW-* pedals inside FX module)
- *   - PA_SLOT_AMP      (20 Amp Sims: 1-15 Guitar, 16-20 Bass + NAM A2)
- *   - PA_SLOT_EQ       (3-Band / 5-Band Equalizer)
- *   - PA_SLOT_MOD      (7 Modulation types, Stereo)
- *   - PA_SLOT_DELAY    (5 Delay types, Stereo + Delay Tail)
- *   - PA_SLOT_REVERB   (6 Reverb types, Stereo + Reverb Tail)
- *   - PA_SLOT_CAB      (20 IR Cabinets: 1-15 Guitar, 16-20 Bass + 1024/2048-tap User IR)
+/* Effect Slot IDs — Focused 5-Block Guitar Synthesizer & Amp Chain:
+ *   0: PA_SLOT_DYNAMICS (AI Noise Gate++ / AI Gate MS + Boost / Compress)
+ *   1: PA_SLOT_SYNTH    (Project α GR-300 / Dual-Oscillator Guitar Synthesizer)
+ *   2: PA_SLOT_AMP      (20 Amp Sims: 1-15 Guitar, 16-20 Bass + NAM / WaveNet A2)
+ *   3: PA_SLOT_CAB      (20 IR Cabinets: 1-15 Guitar, 16-20 Bass + User IR)
+ *   4: PA_SLOT_EQ       (5-Band / Low-High Cut / Parametric-3 Equalizer)
+ *   (PA_SLOT_COUNT = 8 is retained for binary compatibility with the 164-byte flash preset store & SysEx packets)
  */
+#define PA_ACTIVE_SLOT_COUNT 5
+
 typedef enum {
     PA_SLOT_DYNAMICS = 0,
-    PA_SLOT_DRIVE    = 1,
+    PA_SLOT_SYNTH    = 1,
     PA_SLOT_AMP      = 2,
     PA_SLOT_CAB      = 3,
     PA_SLOT_EQ       = 4,
@@ -55,6 +55,8 @@ typedef enum {
     PA_SLOT_REVERB   = 7,
     PA_SLOT_COUNT    = 8
 } pa_fx_slot_id_t;
+
+#define PA_SLOT_DRIVE PA_SLOT_SYNTH
 
 typedef enum {
     PA_SPK_MODE_FRFR          = 0,
@@ -153,12 +155,9 @@ void pa_fx_chain_run_front(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R,
  * core 0 before the hand-over (a drive pedal in front of the amp would otherwise push core 1 past its block). 1 = the amp alone. */
 void pa_fx_chain_set_core1_budget_us(uint32_t us);
 
-fx_node_t *fx_drive_new(void);
+fx_node_t *fx_synth_new(void);
 fx_node_t *fx_eq_new(void);
 fx_node_t *fx_dynamics_new(void);
-fx_node_t *fx_delay_new(void);
-fx_node_t *fx_reverb_new(void);
-fx_node_t *fx_mod_new(void);
 fx_node_t *fx_cab_ir_new(void);
 void fx_cab_ir_load_q18(fx_node_t *nd, const int32_t *taps_q18, uint32_t num_taps);
 void fx_cab_ir_set_stock_trim(fx_node_t *nd, uint8_t stock_idx);       /* IMP-02 */
@@ -167,24 +166,9 @@ void fx_cab_ir_set_trim_db_x10(fx_node_t *nd, int16_t db_x10);
 void fx_cab_ir_set_stereo_width(fx_node_t *nd, uint8_t pct);
 void pa_fx_chain_set_stereo_width(pa_fx_chain_t *chain, uint8_t pct);
 
-/* ---- reverb diagnostics ---------------------------------------------------
- * Read-only hooks for custom-fw/test/test_reverb.c. They expose the tank
- * layout and the decay gain of the REAL node, so the regression test checks the
- * shipped arithmetic instead of a second copy of it. Not used by the firmware. */
-uint32_t pa_rev_tank_samples(void);
-int32_t *pa_rev_tank_base(const fx_node_t *nd);
-uint32_t pa_rev_regions(int type, uint32_t *off, uint32_t *len, uint32_t max);
-uint32_t pa_rev_state_regions(const fx_node_t *nd, uint32_t *off, uint32_t *len,
-                              uint32_t max);
-int32_t  pa_rev_decay_gain(const fx_node_t *nd);
-/* What the TIME / DECAY knobs mean in real units, for the screen. They use the same
- * law as the DSP's set_param, so the display cannot drift from the sound. */
-uint32_t pa_dly_time_ms(int type, int32_t knob_q21);       /* delay TIME -> ms (per type) */
 uint32_t pa_eq_freq_hz(int type, int p, int32_t knob_q21);  /* an EQ frequency knob -> Hz, or 0 */
 int32_t  pa_eq_gain_tenth_db(int type, int p, int32_t knob_q21); /* an EQ gain knob -> 0.1 dB,
                                                                  * or INT32_MIN */
-uint32_t pa_rev_decay_ms(int type, int32_t knob_q21);      /* reverb DECAY -> RT60 in ms */
-uint32_t pa_mod_rate_mhz(int32_t knob_q21);                /* mod RATE -> LFO rate in mHz */
 enum { PA_DYN_U_NONE = 0, PA_DYN_U_DB, PA_DYN_U_RATIO, PA_DYN_U_MS, PA_DYN_U_OFF };
 int32_t  pa_dyn_display(int type, int p, int32_t knob_q21, int *unit); /* a DYN knob -> 0.1 units */
 float    pa_dyn_comp_gr_db(const fx_node_t *nd);           /* test hook: compressor reduction, dB */

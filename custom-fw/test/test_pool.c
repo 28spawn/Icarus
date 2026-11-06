@@ -27,22 +27,19 @@ static int fails = 0;
         }                                                        \
     } while (0)
 
-#define N_NODES 7
+#define N_NODES 4
 
 static fx_node_t *make(int i) {
     switch (i) {
         case 0: return fx_dynamics_new();
-        case 1: return fx_drive_new();
+        case 1: return fx_synth_new();
         case 2: return fx_eq_new();
-        case 3: return fx_mod_new();
-        case 4: return fx_delay_new();
-        case 5: return fx_reverb_new();
         default: return fx_cab_ir_new();
     }
 }
 
 static const char *k_name[N_NODES] = {
-    "dynamics", "drive", "eq", "mod", "delay", "reverb", "cab"
+    "dynamics", "synth", "eq", "cab"
 };
 
 int main(void) {
@@ -82,15 +79,15 @@ int main(void) {
 
     /* The stereo cabinet takes the right IR's spectra (FC_MAXP x FC_BINS complex floats) from the pool, but only while the width is above 0.
      * With every other effect on it must still fit (a failure leaves the cabinet mono and is logged as PA_EV_POOL_FAIL). */
-    if (nd[6] && nd[6]->state) {
+    if (nd[3] && nd[3]->state) {
         const uint32_t before = pa_pool_used_bytes();
-        fx_cab_ir_set_stereo_width(nd[6], 100);
+        fx_cab_ir_set_stereo_width(nd[3], 100);
         const uint32_t used = pa_pool_used_bytes();
         printf("   + stereo    right-IR spectra %6u B  (total %6u B = %.1f %%)\n", (unsigned)(used - before), (unsigned)used,
                100.0 * (double)used / (double)PA_DSP_POOL_BYTES);
-        CHECK(nd[6]->stereo_on == 1 && used <= PA_DSP_POOL_BYTES, "the stereo cabinet did not fit in the pool with every effect on");
-        fx_cab_ir_set_stereo_width(nd[6], 0);
-        CHECK(nd[6]->stereo_on == 0, "width 0 must switch the stereo cabinet off");
+        CHECK(nd[3]->stereo_on == 1 && used <= PA_DSP_POOL_BYTES, "the stereo cabinet did not fit in the pool with every effect on");
+        fx_cab_ir_set_stereo_width(nd[3], 0);
+        CHECK(nd[3]->stereo_on == 0, "width 0 must switch the stereo cabinet off");
     }
 
     printf("[2] destroy: the allocator must give every byte back\n");
@@ -186,7 +183,7 @@ int main(void) {
         CHECK(pa_pool_used_bytes() == 0, "the sizing pass leaked %u B", (unsigned)pa_pool_used_bytes());
         uint32_t all = 0;
         for (int i = 0; i < N_NODES; i++) all += cost[i];
-        printf("   all seven: %u B of %u B\n", (unsigned)all, (unsigned)PA_DSP_POOL_BYTES);
+        printf("   all four: %u B of %u B\n", (unsigned)all, (unsigned)PA_DSP_POOL_BYTES);
         uint32_t rng = 0x2545F491u + (uint32_t)cfg;
         long ops = 0, frag = 0, frag_late = 0, refused = 0, cab_tries = 0, cab_fail = 0, per[N_NODES] = { 0 };
         for (int step = 0; step < 300000; step++) {
@@ -198,13 +195,13 @@ int main(void) {
                 on[i] = 0;
             } else {
                 const int fits = (pa_pool_used_bytes() + cost[i] <= (uint32_t)PA_DSP_POOL_BYTES);
-                if (i == 6) cab_tries++;
+                if (i == 3) cab_tries++;
                 if (nn[i]->create) nn[i]->create(nn[i]);
                 if (nn[i]->state) {
                     on[i] = 1;
                 } else if (fits) {
                     frag++; per[i]++; if (step >= 200) frag_late++;
-                    if (i == 6) cab_fail++;
+                    if (i == 3) cab_fail++;
                 } else {
                     refused++;
                 }

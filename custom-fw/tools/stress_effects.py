@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """custom-fw/tools/stress_effects.py - the effect-matrix stress test.
 
-Runs every effect on its own, in combination, and in different ORDERS, over a
-sine and a real recording, and checks two things:
+Runs every block of the focused 5-block chain on its own, in combination, and in
+different ORDERS, over a sine and a real recording, and checks two things:
 
   1. SANITY - the chain always produces a sane signal: no NaN, no silence, no
      runaway, no DC offset, no over-clipping, and a sane stereo image.
 
-  2. BEHAVIOUR - each effect actually does the job it is supposed to do. A
-     drive adds gain and distortion, a cabinet rolls off the top, a noise
-     gate closes on a quiet signal, a delay leaves a tail, a reverb leaves a
-     longer one, a modulator moves the amplitude. A block that does nothing
-     would pass the sanity check and still be broken.
+  2. BEHAVIOUR - each block actually does the job it is supposed to do. The
+     dynamics block gates a quiet signal, the synthesizer creates its voice,
+     the amp adds gain and distortion, the cabinet rolls off the top, and the
+     EQ keeps a flat setting flat. A block that does nothing would pass the
+     sanity check and still be broken.
 
-The order is the point. A drive after the cabinet runs on the cabinet's
-high-passed output, a reverb before the amp gets distorted by it, and a delay
-before the drive smears the drive's attack. This is what finds the
-combinations that "bug the audio".
+The chain is:  DYN -> SYNTH -> AMP -> CAB -> EQ
+(PA_ACTIVE_SLOT_COUNT = 5; slots 5..7 are retained only for preset/SysEx
+binary compatibility and are empty here.)
+
+The order is the point. A synthesizer after the cabinet runs on the cabinet's
+high-passed output, an amp after the EQ distorts the EQ's boost, and so on.
+This is what finds the combinations that "bug the audio".
 
     python custom-fw/tools/stress_effects.py --dll custom-fw/emu/pocket_amp_emu.dll
 
@@ -32,46 +35,41 @@ import sys
 import wave
 
 # --------------------------------------------------------------- the chain --
-# The slot ids, in the firmware's order.
-DYN, DRIVE, AMP, CAB, EQ, MOD, DLY, REV = range(8)
-SLOT_NAMES = ["DYN", "DRIVE", "AMP", "CAB", "EQ", "MOD", "DLY", "REV"]
+# The slot ids of the focused 5-block chain, in the firmware's order.
+DYN, SYNTH, AMP, CAB, EQ = range(5)
+SLOT_NAMES = ["DYN", "SYNTH", "AMP", "CAB", "EQ"]
+ACTIVE_SLOTS = tuple(range(5))
 
 # How many knobs each block shows. The knob index IS the DSP's set_param id.
 SLOT_KNOBS = {
-    DYN:   ["THRESH", "RATIO", "ATTACK", "LEVEL"],
-    DRIVE: ["DRIVE", "TONE", "LEVEL"],
+    DYN:   ["THRESH", "RELEASE", "ATTACK", "LEVEL"],
+    SYNTH: ["CUTOFF", "RESO", "ENV", "MIX", "DRIVE", "GLIDE"],
     AMP:   ["GAIN", "BASS", "MID", "TREBLE", "PRES", "MASTER"],
     CAB:   ["LEVEL", "LOWCUT", "HICUT"],
     EQ:    ["100Hz", "400Hz", "1kHz", "3kHz", "8kHz"],
-    MOD:   ["RATE", "DEPTH", "MIX", "FDBK"],
-    DLY:   ["TIME", "FDBK", "MIX", "TONE"],
-    REV:   ["DECAY", "LOWCUT", "TONE", "MIX"],
 }
 
 # The model list of each block (the type index the UI's dropdown uses).
 SLOT_TYPES = {
     DYN:   ["GATE", "BOOST+GATE", "COMP+GATE", "AI GATE MS", "COMP"],
-    DRIVE: ["TS-808", "KLON", "OCD", "RAT", "BIG MUFF", "FUZZ FACE"],
-    AMP:   None,     # the 20 factory amps
-    CAB:   None,     # the 20 factory IRs
-    EQ:    None,
-    MOD:   ["CHORUS", "PHASER", "FLANGER", "TREMOLO", "VIBRATO", "UNIVIBE", "AUTO FILTER"],
-    DLY:   ["ANALOG", "DUCKING", "TAPE", "DUAL", "LO-FI"],
-    REV:   ["ROOM", "HALL", "SWELL", "SPRING", "SHIMMER", "CLOUD"],
+    # PA_SLOT_SYNTH holds the 12 Project Alpha factory presets.
+    SYNTH: ["Metheny Lead", "GR Brass", "Vintage Solo", "Synth Bass",
+            "Liquid Lead", "Analog Fuzz", "GR Texture", "Soft Pad",
+            "Square Lead", "Dark Sequence", "Octave Machine", "Pure GR"],
+    AMP:   None,     # the 20 stock amps (+ user captures)
+    CAB:   None,     # the 20 stock IRs (+ user cabinets)
+    EQ:    ["5-BAND", "LOW/HIGH CUT", "PARAMETRIC-3"],
 }
-TYPE_COUNT = {DYN: 4, DRIVE: 6, AMP: 20, CAB: 20, EQ: 1, MOD: 7, DLY: 5, REV: 6}
+TYPE_COUNT = {DYN: 5, SYNTH: 12, AMP: 20, CAB: 20, EQ: 3}
 
 # A representative, musical default for each block: the knob values (0..100)
 # the UI would show for a sensible sound.
 DEFAULT_PARAMS = {
     DYN:   [50, 50, 50, 100],
-    DRIVE: [60, 50, 80],
+    SYNTH: [55, 45, 50, 100, 35, 20],
     AMP:   [45, 50, 50, 55, 50, 50],
     CAB:   [100, 50, 50],
     EQ:    [50, 50, 50, 50, 50],
-    MOD:   [50, 50, 30, 10],
-    DLY:   [50, 15, 10, 50],
-    REV:   [30, 45, 50, 10],
 }
 
 # --------------------------------------------------------- the pass criteria
@@ -85,46 +83,23 @@ MAX_RUNAWAY      = 4.0     # the gain may not grow by more than this, relative
                            # in must not be mistaken for a runaway)
 MIN_EFFECT       = 0.02    # an effect must change the signal by at least this
 MAX_LR_SPILL     = 0.02    # a MONO input must come out of a MONO chain with
-                           # the left and right channels equal. The global EQ
-                           # used to be applied to the left channel only, so
-                           # the right channel came out with no EQ at all.
+                           # the left and right channels equal.
 
-# The MASTER volume the matrix measures the chain at.
-#
-# The matrix measures the EFFECTS, not the output stage's overload handling.
-# The chain ends in a limiter and a soft ceiling (pa_soft_ceiling_q21), and
-# the high-gain metal models - 3USMetal1, 9USMetal2, 10ModMetal - have so much
-# gain and so much internal squash that they drive that limiter into its clamp
-# for 35..43 % of the signal at a -14 dBFS input, at ANY input level: their
-# own nonlinearity flattens the wave (a crest factor of 1.09..1.16 instead of
-# 1.41), so they sit at the rail from -14 dBFS down to -26 dBFS. That is the
-# amp's character, not a fault - but it would drown every other case in the
-# matrix.
-#
-# So the measurement runs with the master backed off 20 dB (the pot at 2048
-# = 50 %, i.e. -20 dB on the -40..0 dB taper). The chain keeps 20 dB of
-# headroom, so the "no more than 5 % at the rail" criterion means what it
-# says again: a chain that is far louder than it should be. The level law and
-# the output stage are measured on their own, in custom-fw/emu/test_level.py.
-#
-# This used to be accidental: the emulator's MASTER pot started at the middle
-# of its range (2048) and the firmware's tick reads that pot every tick, so
-# the matrix silently ran 20 dB down whatever it asked for. The pot now starts
-# at full scale, and the matrix sets it explicitly.
+# The MASTER volume the matrix measures the chain at (see the note this
+# constant used to carry): the matrix measures the EFFECTS, not the output
+# stage's overload handling, so the measurement runs with 20 dB of headroom.
 MATRIX_MASTER_Q12 = 2048    # 50 % = -20 dB on the firmware's taper
 
 # The behavioural thresholds.
-MIN_DRIVE_GAIN   = 1.5     # a drive must add at least this much gain
 MIN_AMP_GAIN     = 1.5     # an amp must add at least this much gain (or distortion: MIN_THD)
-MIN_THD          = 0.02    # a drive must add at least this much distortion
+MIN_THD          = 0.02    # an amp must add at least this much distortion
 MAX_CAB_HF       = 0.35    # a cabinet must pass at most this much of 8 kHz
-                             # relative to 1 kHz
+                           # relative to 1 kHz
 MAX_EQ_DEVIATION = 0.15    # a flat EQ must stay within this of unity
-MIN_TAIL         = 1e-4    # a delay/reverb must leave a tail
-MIN_MOD_DEPTH    = 0.02    # a modulator must move the amplitude
 MIN_GATE_ATTEN   = 12.0    # a gate must attenuate a quiet signal by this much
+MIN_SYNTH_CHANGE = 0.05    # the synth must change the dry signal by this much
+MIN_SYNTH_SPREAD = 0.005   # its default preset is a stereo voice
 TOGGLE_TOLERANCE = 0.15    # a block must keep its level across a bypass
-                             # (a delay is exempt: it restarts in phase)
 
 # The frequencies the transfer function is measured at.
 TF_FREQS = [100, 200, 400, 800, 1600, 3200, 6400, 10000]
@@ -181,27 +156,29 @@ class Emu:
     def reset(self):
         """A clean chain. emu_init() rebuilds everything, so each case starts
         from the same state - otherwise one case would inherit the previous
-        case's delay lines and reverb tails."""
+        case's filter and synthesizer state."""
         self.d.emu_init()
         self.d.emu_set_master_volume(100)
         # The MASTER the matrix measures at - see MATRIX_MASTER_Q12. It has to
         # be set through the pot, because the firmware's tick reads the pot
         # every tick and would otherwise overwrite whatever was asked for.
         self.d.emu_ui_pot(MATRIX_MASTER_Q12)
-        self.order(*range(8))
+        self.order(*ACTIVE_SLOTS)
 
     def order(self, *slots):
-        assert len(slots) == 8 and sorted(slots) == list(range(8)), slots
-        buf = (ctypes.c_uint8 * 8)(*slots)
+        assert len(slots) == 5 and sorted(slots) == list(range(5)), slots
+        # emu_set_slot_order expects the full 8-entry array; slots 5..7 are
+        # empty nodes kept only for binary compatibility.
+        buf = (ctypes.c_uint8 * 8)(*(list(slots) + [5, 6, 7]))
         self.d.emu_set_slot_order(buf)
 
     def get_order(self):
         buf = (ctypes.c_uint8 * 8)()
         self.d.emu_get_slot_order(buf)
-        return list(buf)
+        return list(buf)[:5]
 
     def enable(self, *slots):
-        for s in range(8):
+        for s in range(5):
             self.d.emu_set_slot_enabled(s, 1 if s in slots else 0)
 
     def params(self, slot, values):
@@ -274,6 +251,13 @@ def rms_of(x):
     return math.sqrt(sum(v * v for v in x) / len(x)) if x else 0.0
 
 
+def rms_diff(a, b):
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0
+    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(n)) / n)
+
+
 def band_mag(sig, freqs, sr=44100):
     """The magnitude at a set of frequencies (a plain DFT - slow but exact,
     and the test does not need more)."""
@@ -300,33 +284,13 @@ def transfer(out, ref, freqs):
 
 
 def thd(sig, f0=220.0, sr=44100):
-    """Total harmonic distortion: the harmonic energy over the fundamental.
-    This is what tells a DRIVE (which adds distortion) from a clean path."""
+    """Total harmonic distortion: the harmonic energy over the fundamental."""
     m = band_mag(sig, [f0, 2 * f0, 3 * f0, 4 * f0], sr)
     fund = m[f0]
     if fund < 1e-12:
         return 0.0
     harm = math.sqrt(m[2 * f0] ** 2 + m[3 * f0] ** 2 + m[4 * f0] ** 2)
     return harm / fund
-
-
-def envelope_depth(sig, win=512):
-    """How much the amplitude moves over time (the coefficient of variation of
-    the per-window RMS). A MODULATOR moves it; a static filter does not."""
-    if len(sig) < win * 2:
-        return 0.0
-    vals = []
-    for off in range(0, len(sig) - win, win):
-        r = rms_of(sig[off:off + win])
-        if r > 1e-9:
-            vals.append(r)
-    if len(vals) < 4:
-        return 0.0
-    mean = sum(vals) / len(vals)
-    if mean < 1e-12:
-        return 0.0
-    var = sum((v - mean) ** 2 for v in vals) / len(vals)
-    return math.sqrt(var) / mean
 
 
 def measure(inp, left, right, mono_chain=True, has_saturation=True):
@@ -343,8 +307,7 @@ def measure(inp, left, right, mono_chain=True, has_saturation=True):
     in_rms = rms_of(inp)
     # the stereo image: how far L and R differ
     diff_rms = math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right)) / n)
-    # the runaway check, normalised by the INPUT's own trend: a recording that
-    # fades in must not be mistaken for the chain running away.
+    # the runaway check, normalised by the INPUT's own trend.
     k = max(1, n // 10)
     out_first = rms_of(left[:k]);  out_last = rms_of(left[-k:])
     in_first = rms_of(inp[:k]);    in_last = rms_of(inp[-k:])
@@ -373,8 +336,8 @@ def measure(inp, left, right, mono_chain=True, has_saturation=True):
     if runaway > MAX_RUNAWAY:
         why.append("the gain ran away (x%.1f)" % runaway)
     # A mono signal through a chain of mono blocks must come out with the
-    # left and right channels equal. A stereo block (MOD/DLY/REV) legitimately
-    # makes them differ, so the check is only meaningful for a mono chain.
+    # left and right channels equal. The synthesizer is a stereo voice, so the
+    # check is only meaningful for a chain that does not contain it.
     if mono_chain and rms > 1e-9 and m["stereo_spread"] > MAX_LR_SPILL:
         why.append("the left and right channels differ by %.0f %% on a mono "
                    "signal" % (100 * m["stereo_spread"]))
@@ -407,23 +370,19 @@ class Runner:
 
     def case(self, name, slots, order, signal, label, types=None, params=None,
              record=True):
-        """Measure one configuration.
-
-        `record=False` marks a DIAGNOSTIC run (a probe for the behaviour
-        checks, not a case in its own right): a probe deliberately uses a
-        signal the chain is meant to reject - a noise gate silencing a quiet
-        signal is the gate WORKING, not a failure - so a probe must not be
-        judged by the sanity criteria."""
+        """Measure one configuration. `record=False` marks a DIAGNOSTIC run
+        (a probe for the behaviour checks, not a case in its own right)."""
         self.configure(slots, order, types, params)
         self.warmup(signal)
         left, right = self.emu.run(signal)
-        # A chain with no stereo block (MOD/DLY/REV) must keep the two
-        # channels equal for a mono input.
-        mono_chain = not (set(slots) & {MOD, DLY, REV})
-        # Clean blocks (EQ, Delay, Reverb, Mod, etc.) must NEVER clip (0% allowed).
-        # The relaxed clipping threshold is reserved strictly for Drive and Amp blocks.
-        has_saturation = bool(set(slots) & {DRIVE, AMP})
-        m = measure(signal, left, right, mono_chain=mono_chain, has_saturation=has_saturation)
+        # The SYNTH is a stereo voice. No other block in the focused chain
+        # makes the two channels differ on a mono input.
+        mono_chain = SYNTH not in slots
+        # The SYNTH and the AMP are the blocks whose own nonlinearity may
+        # saturate; the others must never clip.
+        has_saturation = bool(set(slots) & {SYNTH, AMP})
+        m = measure(signal, left, right, mono_chain=mono_chain,
+                    has_saturation=has_saturation)
         m["cpu"] = self.emu.cpu_permille()
         m["name"] = name
         m["slots"] = " ".join(SLOT_NAMES[s] for s in slots)
@@ -434,19 +393,9 @@ class Runner:
             self.report.append(m)
         return m
 
-    def tail(self, slots, order, signal, types=None, params=None):
-        """Feed the signal, then silence, and measure the output during the
-        silence. A delay or a reverb rings on; a static filter does not."""
-        self.configure(slots, order, types, params)
-        self.warmup(signal)
-        self.emu.run(signal, collect=False)
-        silence = [0.0] * (int(0.6 * Emu.SR))
-        left, right = self.emu.run(silence)
-        return rms_of(left)
-
     def reference(self, signal):
         """The bare chain, for the behavioural comparisons."""
-        self.configure((), tuple(range(8)))
+        self.configure((), ACTIVE_SLOTS)
         self.warmup(signal)
         left, right = self.emu.run(signal)
         return left
@@ -464,26 +413,17 @@ def check_behaviour(run, slot, sig, label, failures):
     bad = []
     ref = run.reference(sig)
 
-    if slot in (DRIVE, AMP, CAB, EQ):
+    if slot in (AMP, CAB, EQ):
         # the transfer function, on broadband noise
         nz = run.noise_signal
         ref_nz = run.reference(nz)
-        out_nz = run.case("tf", (slot,), tuple(range(8)), nz, "noise", record=False)
+        out_nz = run.case("tf", (slot,), ACTIVE_SLOTS, nz, "noise", record=False)
         tf = transfer(out_nz["left"], ref_nz, TF_FREQS)
-        if slot == DRIVE:
-            if not (tf[800] > MIN_DRIVE_GAIN):
-                bad.append("the drive adds no gain (%.2fx at 800 Hz)" % tf[800])
-            t_on, t_off = thd(out_nz["left"]), 0.0
-            if t_on < MIN_THD:
-                bad.append("the drive adds no distortion (THD %.4f)" % t_on)
-        elif slot == AMP:
-            # An amp must DO something: add gain, or add distortion. (The stock amps are
-            # level-matched, so a clean model at GAIN 45 % adds little level on loud noise:
-            # Amp 1 (UK Clean) is +1.3 dB. It still distorts a guitar-level note, and a
-            # bypassed or broken amp does neither.)
+        if slot == AMP:
+            # An amp must DO something: add gain, or add distortion.
             if not (tf[400] > MIN_AMP_GAIN):
                 s = sine(220.0, 0.2)
-                out_s = run.case("thd", (slot,), tuple(range(8)), s, "sine", record=False)
+                out_s = run.case("thd", (slot,), ACTIVE_SLOTS, s, "sine", record=False)
                 t_amp, t_ref = thd(out_s["left"]), thd(run.reference(s))
                 if not (t_amp > MIN_THD and t_amp > 3 * t_ref):
                     bad.append("the amp adds no gain (%.2fx at 400 Hz) and no distortion (THD %.4f)"
@@ -503,20 +443,23 @@ def check_behaviour(run, slot, sig, label, failures):
     elif slot == DYN:
         # a noise gate must close on a quiet signal
         quiet = run.quiet_signal
-        out_q = run.case("gate", (DYN,), tuple(range(8)), quiet, "quiet", record=False)
+        out_q = run.case("gate", (DYN,), ACTIVE_SLOTS, quiet, "quiet", record=False)
         ref_q = rms_of(run.reference(quiet))
         if ref_q > 1e-9 and rms_of(out_q["left"]) > 0:
             att = 20 * math.log10(ref_q / rms_of(out_q["left"]))
             if att < MIN_GATE_ATTEN:
                 bad.append("the gate does not close on a quiet signal (%.1f dB)" % att)
-    elif slot == MOD:
-        out = run.case("mod", (MOD,), tuple(range(8)), sig, label, record=False)
-        if envelope_depth(out["left"]) < MIN_MOD_DEPTH:
-            bad.append("the modulator does not move the amplitude")
-    elif slot in (DLY, REV):
-        tail = run.tail((slot,), tuple(range(8)), sig)
-        if tail < MIN_TAIL:
-            bad.append("the %s leaves no tail" % SLOT_NAMES[slot])
+    elif slot == SYNTH:
+        # The synthesizer must create its voice: the output has to differ from
+        # the dry guitar, and its default preset is deliberately stereo.
+        out_s = run.case("synth", (SYNTH,), ACTIVE_SLOTS, sig, label, record=False)
+        change = rms_diff(out_s["left"], ref) / max(rms_of(ref), 1e-9)
+        if change < MIN_SYNTH_CHANGE:
+            bad.append("the synth does not change the signal (%.2f relative difference)"
+                       % change)
+        if out_s["stereo_spread"] < MIN_SYNTH_SPREAD:
+            bad.append("the synth's default preset is not stereo (spread %.3f)"
+                       % out_s["stereo_spread"])
 
     for c in bad:
         failures.append((SLOT_NAMES[slot], label, c))
@@ -529,15 +472,13 @@ def check_toggle(run, failures):
     it on again creates a fresh one, so the knobs and the model have to be
     put back - otherwise the block comes up with the factory defaults."""
     sig = run.noise_signal
-    for slot in range(8):
-        if slot in (DLY, REV):
-            continue    # a delay restarts in phase: its level legitimately differs
+    for slot in ACTIVE_SLOTS:
         # the reference: the block, on, never toggled
-        run.configure((slot,), tuple(range(8)))
+        run.configure((slot,), ACTIVE_SLOTS)
         run.warmup(sig)
         ref, _ = run.emu.run(sig)
         # the same block, toggled off and on again
-        run.configure((slot,), tuple(range(8)))
+        run.configure((slot,), ACTIVE_SLOTS)
         run.emu.d.emu_set_slot_enabled(slot, 0)
         run.emu.run(sig, collect=False)
         run.emu.d.emu_set_slot_enabled(slot, 1)
@@ -584,10 +525,10 @@ def main():
         print("(no %s - using the sines only)" % a.wav)
 
     # ---------------------------------------------------------- 1. one effect --
-    print("=== 1. every effect on its own, and what it is supposed to do ===")
-    for slot in range(8):
+    print("=== 1. every block on its own, and what it is supposed to do ===")
+    for slot in ACTIVE_SLOTS:
         for sname, sig in signals:
-            m = run.case(SLOT_NAMES[slot], [slot], tuple(range(8)), sig, sname)
+            m = run.case(SLOT_NAMES[slot], [slot], ACTIVE_SLOTS, sig, sname)
             print("  %-6s %-16s  %s" % (m["slots"], m["signal"], fmt(m)))
             if not m["ok"]:
                 continue
@@ -605,7 +546,7 @@ def main():
                 for sname, sig in signals[:1]:
                     m = run.case("%s/%s" % (SLOT_NAMES[slot],
                                             names[t] if names else str(t)),
-                                 [slot], tuple(range(8)), sig, sname,
+                                 [slot], ACTIVE_SLOTS, sig, sname,
                                  types={slot: t})
                     print("  %-22s %-16s  %s" % (m["name"], m["signal"], fmt(m)))
 
@@ -613,12 +554,12 @@ def main():
     if not a.quick:
         print()
         print("=== 3. every PAIR, in both orders ===")
-        for i in range(8):
-            for j in range(8):
+        for i in ACTIVE_SLOTS:
+            for j in ACTIVE_SLOTS:
                 if i == j:
                     continue
                 for sname, sig in signals[:1]:
-                    rest = tuple(k for k in range(8) if k not in (i, j))
+                    rest = tuple(k for k in ACTIVE_SLOTS if k not in (i, j))
                     m = run.case("%s+%s" % (SLOT_NAMES[i], SLOT_NAMES[j]),
                                  [i, j], (i, j) + rest, sig, sname)
                     if not m["ok"]:
@@ -629,15 +570,15 @@ def main():
         print()
         print("=== 4. the whole chain, in a few orders ===")
         orders = [
-            (DYN, DRIVE, AMP, CAB, EQ, MOD, DLY, REV),   # the default
-            (DRIVE, AMP, CAB, EQ, MOD, DLY, REV, DYN),
-            (CAB, DRIVE, AMP, EQ, MOD, DLY, REV, DYN),   # a drive AFTER the cab
-            (AMP, CAB, DRIVE, EQ, MOD, DLY, REV, DYN),   # a drive after the cab too
-            (REV, DLY, MOD, EQ, AMP, CAB, DRIVE, DYN),   # the time effects first
+            (DYN, SYNTH, AMP, CAB, EQ),   # the default
+            (SYNTH, DYN, AMP, CAB, EQ),
+            (DYN, AMP, CAB, SYNTH, EQ),   # the synth after the cabinet
+            (EQ, AMP, CAB, SYNTH, DYN),
+            (AMP, CAB, DYN, EQ, SYNTH),
         ]
         for sname, sig in signals:
             for o in orders:
-                m = run.case("all", list(range(8)), o, sig, sname)
+                m = run.case("all", list(ACTIVE_SLOTS), o, sig, sname)
                 print("  %-42s %-16s  %s" % (m["order"], m["signal"], fmt(m)))
 
     # --------------------------------------------------- 5. the bypass toggle --
@@ -665,8 +606,8 @@ def main():
         for slot, sname, c in behaviour_fails:
             print("  FAIL %-6s %-16s  %s" % (slot, sname, c))
     if not fails and not behaviour_fails:
-        print("  every effect, every pair, every order: sane signal, and every")
-        print("  effect does the job it is supposed to do.")
+        print("  every block, every pair, every order: sane signal, and every")
+        print("  block does the job it is supposed to do.")
         return 0
     return 1
 

@@ -42,6 +42,13 @@
 #include "onyx_block_icons.h"
 #include "../../include/pa_settings.h"
 #include "../../include/pa_audio.h"
+#include "../ui/project_alpha_ui.h"
+#include "../effects/project_alpha/alpha.h"
+
+__attribute__((weak)) void alpha_ui_enter(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
+__attribute__((weak)) void alpha_ui_exit(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
+__attribute__((weak)) void alpha_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, uint32_t b, int32_t e) { (void)ui; (void)chain; (void)b; (void)e; }
+__attribute__((weak)) void alpha_ui_render(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) { (void)ui; (void)chain; }
 
 extern void plat_backlight_set(uint8_t pct);      /* IMP-06 (gpio_scan.c) */
 extern uint32_t plat_ms(void);
@@ -136,7 +143,7 @@ static void fmt_preset(char out[4], uint32_t preset_0_to_98) {
 static const char *get_slot_label(uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return "DYN";
-        case PA_SLOT_DRIVE:    return "DRIVE";
+        case PA_SLOT_SYNTH:    return "SYNTH";
         case PA_SLOT_AMP:      return "AMP";
         case PA_SLOT_CAB:      return "CAB";
         case PA_SLOT_EQ:       return "EQ";
@@ -150,7 +157,7 @@ static const char *get_slot_label(uint8_t slot) {
 static const char *get_slot_short(uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return "DYN";
-        case PA_SLOT_DRIVE:    return "DRV";
+        case PA_SLOT_SYNTH:    return "SYN";
         case PA_SLOT_AMP:      return "AMP";
         case PA_SLOT_CAB:      return "CAB";
         case PA_SLOT_EQ:       return "EQ";
@@ -203,7 +210,6 @@ static const char *get_slot_model_name(const pa_ui_ctx_t *ui, uint8_t slot, uint
     (void)ui;
     /* IMP-13: order MUST match the DSP enums (fx_dynamics/drive/mod/delay/reverb.c) */
     static const char * const dyn_models[5] = { "GATE", "BOOST+GATE", "COMP+GATE", "AI GATE MS", "COMP" };
-    static const char * const drv_models[6] = { "TS-808", "KLON", "OCD", "RAT", "BIG MUFF", "FUZZ FACE" };
     static const char * const eq_models[3]  = { "5-BAND", "LOW/HIGH CUT", "PARAMETRIC-3" };
     static const char * const mod_models[7] = { "CHORUS", "PHASER", "FLANGER", "TREMOLO", "VIBRATO", "UNIVIBE", "AUTO FILTER" };
     static const char * const dly_models[9] = { "ANALOG", "DUCKING", "TAPE", "DUAL", "LO-FI",
@@ -213,7 +219,7 @@ static const char *get_slot_model_name(const pa_ui_ctx_t *ui, uint8_t slot, uint
 
     switch (slot) {
         case PA_SLOT_DYNAMICS: return dyn_models[idx % 5u];
-        case PA_SLOT_DRIVE:    return drv_models[idx % 6u];
+        case PA_SLOT_SYNTH:    return alpha_get_factory_preset((uint8_t)(idx % ALPHA_FACTORY_PRESET_COUNT))->name;
         case PA_SLOT_AMP:
             if (idx < PA_STOCK_AMP_COUNT) {
                 return pa_stock_get_amp_name(idx);
@@ -257,7 +263,7 @@ static int is_a2_capture_active(const pa_ui_ctx_t *ui) {
 static uint8_t get_slot_param_count(const pa_ui_ctx_t *ui, uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return 4;
-        case PA_SLOT_DRIVE:    return 3;
+        case PA_SLOT_SYNTH:    return 6;
         case PA_SLOT_AMP:      return 6;
         case PA_SLOT_CAB:      return 3;
         case PA_SLOT_EQ: {                 /* 5-BAND: 5 bands; LOW/HIGH CUT: 3; PARAMETRIC-3: 4 */
@@ -281,7 +287,7 @@ static const char *get_slot_param_label(const pa_ui_ctx_t *ui, uint8_t slot, uin
         { "THRESH", "RELEASE", "ATTACK", "LEVEL"  },   /* AI GATE MS: THRESH = lowest threshold */
         { "THRESH", "RATIO",   "ATTACK", "LEVEL"  },   /* COMP: THRESH is the compressor's */
     };
-    static const char * const drv_params[3] = { "DRIVE", "TONE", "LEVEL" };
+    static const char * const syn_params[6] = { "CUTOFF", "RESO", "ENV", "MIX", "DRIVE", "GLIDE" };
     static const char * const amp_params[6] = { "GAIN", "BASS", "MID", "TREBLE", "PRES", "MASTER" };
     static const char * const cab_params[3] = { "LEVEL", "LOWCUT", "HICUT" };
     static const char * const eq_bands[5]   = { "100", "400", "1k", "3k", "8k" };
@@ -305,7 +311,7 @@ static const char *get_slot_param_label(const pa_ui_ctx_t *ui, uint8_t slot, uin
 
     switch (slot) {
         case PA_SLOT_DYNAMICS: return (p < 4) ? dyn_params[ui ? (ui->slot_type[PA_SLOT_DYNAMICS] % 5u) : 0][p] : "";
-        case PA_SLOT_DRIVE:    return (p < 3) ? drv_params[p] : "";
+        case PA_SLOT_SYNTH:    return (p < 6) ? syn_params[p] : "";
         case PA_SLOT_AMP:      return (p < 6) ? amp_params[p] : "";
         case PA_SLOT_CAB:      return (p < 3) ? cab_params[p] : "";
         case PA_SLOT_EQ: {
@@ -551,11 +557,6 @@ static const char *param_value_text(const pa_ui_ctx_t *ui, uint8_t slot, uint8_t
                                     int32_t val_q21, int32_t pct, char *buf) {
     uint32_t ms = 0;
     int has_ms = 0;
-    if (slot == PA_SLOT_DELAY && p == 0) {
-        ms = pa_dly_time_ms(ui ? (int)ui->slot_type[PA_SLOT_DELAY] : 0, val_q21); has_ms = 1;
-    } else if (slot == PA_SLOT_REVERB && p == 0) {
-        ms = pa_rev_decay_ms(ui ? (int)ui->slot_type[PA_SLOT_REVERB] : 1, val_q21); has_ms = 1;
-    }
     if (slot == PA_SLOT_EQ && ui && ui->slot_type[PA_SLOT_EQ] != 0u) {
         int et = (int)ui->slot_type[PA_SLOT_EQ];
         uint32_t hz = pa_eq_freq_hz(et, p, val_q21);
@@ -615,16 +616,6 @@ static const char *param_value_text(const pa_ui_ctx_t *ui, uint8_t slot, uint8_t
             buf[n] = '\0';
             return unit == PA_DYN_U_DB ? "dB" : unit == PA_DYN_U_RATIO ? ":1" : "ms";
         }
-    }
-    if (slot == PA_SLOT_MOD && p == 0) {
-        /* RATE in Hz, two decimals: 0.10 .. 8.10 */
-        uint32_t c = (pa_mod_rate_mhz(val_q21) + 5u) / 10u;          /* centi-Hz */
-        buf[0] = (char)('0' + (c / 100u) % 10u);
-        buf[1] = '.';
-        buf[2] = (char)('0' + (c / 10u) % 10u);
-        buf[3] = (char)('0' + c % 10u);
-        buf[4] = '\0';
-        return "Hz";
     }
     if (!has_ms) { fmt_val_10(buf, pct); return ""; }
     if (ms > 99999u) ms = 99999u;
@@ -753,7 +744,7 @@ static void draw_eq_bands(uint16_t x0, uint16_t x1, uint16_t top, uint16_t bot,
 static uint8_t slot_to_onyx_icon_idx(uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return ONYX_SLOT_DYN;   /* 0 */
-        case PA_SLOT_DRIVE:    return ONYX_SLOT_DRIVE; /* 1 */
+        case PA_SLOT_SYNTH:    return ONYX_SLOT_DRIVE; /* synth glyph reuses slot 1 art */
         case PA_SLOT_AMP:      return ONYX_SLOT_AMP;   /* 2 */
         case PA_SLOT_CAB:      return ONYX_SLOT_CAB;   /* 6 */
         case PA_SLOT_EQ:       return ONYX_SLOT_EQ;    /* 7 */
@@ -859,7 +850,7 @@ static void render_stomp_strip(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain
     static const char * const k_keys[4] = { "VOL-", "VOL+", "<", ">" };
     st7735s_fill_rect(0, 64, DISP_W, 25, ONYX_COL_BG);          /* replaces the volume row */
     for (int i = 0; i < 4; i++) {
-        uint8_t slot = ui->stomp_map[i] < PA_SLOT_COUNT ? ui->stomp_map[i] : PA_SLOT_DRIVE;
+        uint8_t slot = ui->stomp_map[i] < PA_ACTIVE_SLOT_COUNT ? ui->stomp_map[i] : PA_SLOT_SYNTH;
         const fx_node_t *nd = chain ? chain->slots[slot] : 0;
         int on = NODE_SHOWN_ON(nd);
         uint16_t x = (uint16_t)(6 + i * 58), col = get_slot_color(slot);
@@ -887,9 +878,11 @@ static void render_home_grid(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) 
     const uint16_t cols[4] = { 9, 66, 124, 181 };
     const uint16_t rows[2] = { 100, 174 };
 
-    for (int i = 0; i < 8; i++) {
-        uint16_t x = cols[i % 4];
-        uint16_t y = rows[i / 4];
+    (void)cols;
+    static const uint16_t gx[PA_ACTIVE_SLOT_COUNT] = { 18, 95, 172, 56, 134 };   /* 3 + 2 focused blocks */
+    for (int i = 0; i < PA_ACTIVE_SLOT_COUNT; i++) {
+        uint16_t x = gx[i];
+        uint16_t y = rows[i / 3];
         uint8_t slot = (chain && chain->slot_order[i] < PA_SLOT_COUNT) ? chain->slot_order[i] : i;
         const fx_node_t *nd = chain ? chain->slots[slot] : 0;
         int on = NODE_SHOWN_ON(nd) ? 1 : 0;
@@ -994,12 +987,12 @@ static void render_home_list(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) 
     st7735s_fill_rect(0, 39, DISP_W, 1, ONYX_COL_LINE);
 
     /* 8 rows of 24px */
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < PA_ACTIVE_SLOT_COUNT; i++) {
         uint8_t slot = (chain && chain->slot_order[i] < PA_SLOT_COUNT) ? chain->slot_order[i] : i;
         const fx_node_t *nd = chain ? chain->slots[slot] : 0;
         int on = NODE_SHOWN_ON(nd) ? 1 : 0;
         int sel = (i == ui->cursor_slot_idx);
-        uint16_t y = (uint16_t)(44 + i * 24);
+        uint16_t y = (uint16_t)(46 + i * 38);
 
         if (sel) {
             fill_rounded_box(4, y + 1, 232, 22, ONYX_COL_PANEL);
@@ -1250,18 +1243,18 @@ static void render_bank_mode(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) 
     ui_draw_str(94, 94, "BANK MODE", ONYX_COL_MUTE, ONYX_COL_BG);
 
     /* 8-block on/off strip */
-    uint16_t sx = 10;
-    for (int i = 0; i < 8; i++) {
+    uint16_t sx = 12;
+    for (int i = 0; i < PA_ACTIVE_SLOT_COUNT; i++) {
         uint8_t s = (chain && chain->slot_order[i] < PA_SLOT_COUNT) ? chain->slot_order[i] : i;
         const fx_node_t *nd = chain ? chain->slots[s] : 0;
         int on = NODE_SHOWN_ON(nd) ? 1 : 0;
         uint16_t col = get_slot_color(s);
 
-        fill_rounded_box(sx, 126, 25, 16, on ? col : ONYX_COL_PANEL);
-        if (!on) draw_rounded_rect(sx, 126, 25, 16, ONYX_COL_DIM);
+        fill_rounded_box(sx, 126, 40, 16, on ? col : ONYX_COL_PANEL);
+        if (!on) draw_rounded_rect(sx, 126, 40, 16, ONYX_COL_DIM);
         const char *sh = get_slot_short(s);
-        ui_draw_str(sx + 4, 130, sh, on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? col : ONYX_COL_PANEL);
-        sx += 28;
+        ui_draw_str(sx + 6, 130, sh, on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? col : ONYX_COL_PANEL);
+        sx += 44;
     }
 
     /* 4 Slots with dedicated hardware keycaps */
@@ -1577,11 +1570,11 @@ static void render_saved_toast(const pa_ui_ctx_t *ui) {
 static void render_settings_menu(const pa_ui_ctx_t *ui) {
     render_sub_title_bar("SETTINGS", ONYX_COL_TEXT, 0, 1, 0, ui);
 
-    #define SETTINGS_ROW_COUNT 11
+    #define SETTINGS_ROW_COUNT 12
     static const char * const menu_labels[SETTINGS_ROW_COUNT] = {
         "Input / Output", "Bluetooth", "Display", "Play Mode",
         "Fizz Filter", "USB Audio", "Performance", "System",
-        "Output Limit", "USB Loopback", "USB Mode"
+        "Output Limit", "USB Loopback", "USB Mode", "Project Alpha"
     };
 
     char cpu_str[8];
@@ -1626,6 +1619,7 @@ static void render_settings_menu(const pa_ui_ctx_t *ui) {
          * with the dry guitar also heard. Click cycles. */
         else if (idx == 10) { static const char * const k_um[3] = { "AMP", "INTERFACE", "IF+MONITOR" };
                               val = k_um[ui->usb_mode % 3u]; }
+        else if (idx == 11) { val = alpha_is_active() ? "ACTIVE >" : "SYNTH >"; }
 
         uint16_t vlen = 0;
         while (val[vlen]) vlen++;
@@ -2167,8 +2161,8 @@ void pa_ui_init(pa_ui_ctx_t *ui) {
     ui->batt_pct          = pa_battery_pct_from_mv(ui->battery_mv);
     ui->batt_warn         = 0;
     ui->batt_warn_shown   = 0;
-    ui->stomp_map[0] = PA_SLOT_DRIVE; ui->stomp_map[1] = PA_SLOT_MOD;
-    ui->stomp_map[2] = PA_SLOT_DELAY; ui->stomp_map[3] = PA_SLOT_REVERB;
+    ui->stomp_map[0] = PA_SLOT_DYNAMICS; ui->stomp_map[1] = PA_SLOT_SYNTH;
+    ui->stomp_map[2] = PA_SLOT_AMP; ui->stomp_map[3] = PA_SLOT_EQ;
     ui->preset_name[0] = '\0';
     ui->saved_index = 0;
     ui->cpu_total_permille= 520;
@@ -2199,7 +2193,7 @@ void pa_ui_sync_from_preset(pa_ui_ctx_t *ui, const pa_preset_t *pr) {
     for (int b = 0; b < 5; b++)                    /* EQ block: Q16 0..1 -> -12..+12 dB */
         ui->slot_bands_db[b] = (int8_t)((((int32_t)pr->params[PA_SLOT_EQ][b] * 24 + 32767) / 65535) - 12);
     for (int i = 0; i < 4; i++)
-        ui->stomp_map[i] = (pr->stomp_map[i] < PA_SLOT_COUNT) ? pr->stomp_map[i] : (uint8_t)(PA_SLOT_DRIVE + i);
+        ui->stomp_map[i] = (pr->stomp_map[i] < PA_SLOT_COUNT) ? pr->stomp_map[i] : (uint8_t)(i < PA_ACTIVE_SLOT_COUNT ? i : 0);
     memcpy(ui->preset_name, pr->name, sizeof(ui->preset_name));
     ui->preset_name[sizeof(ui->preset_name) - 1] = '\0';
 }
@@ -2454,7 +2448,7 @@ void pa_ui_midi_control(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, const pa_midi_ev_
     case PA_MEV_PRESET_PARAM:
         if (e->a == 0u) { ui->preset_volume = (uint8_t)midi_clamp(v, 0, 100); pa_fx_chain_set_preset_vol(chain, ui->preset_volume); ui->dirty = 1; }
         else if (e->a >= 3u && e->a <= 6u && v <= 7) {                          /* the stomp map: the module number 0..7 in the stock order */
-            static const int8_t mod_slot[8] = { PA_SLOT_DYNAMICS, PA_SLOT_AMP, PA_SLOT_MOD, PA_SLOT_DELAY, PA_SLOT_REVERB, PA_SLOT_CAB, PA_SLOT_DRIVE, PA_SLOT_EQ };
+            static const int8_t mod_slot[8] = { PA_SLOT_DYNAMICS, PA_SLOT_AMP, PA_SLOT_SYNTH, PA_SLOT_SYNTH, PA_SLOT_SYNTH, PA_SLOT_CAB, PA_SLOT_SYNTH, PA_SLOT_EQ };
             ui->stomp_map[e->a - 3u] = (uint8_t)mod_slot[v];
             ui->dirty = 1;
         }
@@ -2652,6 +2646,23 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
             ui->dirty = 1;
             return;
         }
+
+        /* HOME & VOL+ -> Enter / Leave Project Alpha Guitar Synthesizer */
+        if ((buttons_pressed & PA_COMBO_CHAIN) == PA_COMBO_CHAIN) {
+            if (ui->view == PA_UI_VIEW_PROJECT_ALPHA) {
+                alpha_ui_exit(ui, chain);
+            } else {
+                ui->prev_view = ui->view;
+                alpha_ui_enter(ui, chain);
+            }
+            return;
+        }
+    }
+
+    /* Project Alpha Synthesizer dedicated UI input dispatch */
+    if (ui->view == PA_UI_VIEW_PROJECT_ALPHA) {
+        alpha_ui_handle_inputs(ui, chain, buttons_pressed, enc_delta);
+        return;
     }
 
     /* HOME held 1.5 s on the home screen: switch between PRESET and STOMP mode (the Live Stomp Lock this replaced is gone).
@@ -2781,8 +2792,8 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
             }
             if (enc_delta != 0) {
                 int c = (int)ui->cursor_slot_idx + enc_delta;
-                while (c < 0) c += 8;
-                ui->cursor_slot_idx = (uint8_t)(c % 8);
+                while (c < 0) c += PA_ACTIVE_SLOT_COUNT;
+                ui->cursor_slot_idx = (uint8_t)(c % PA_ACTIVE_SLOT_COUNT);
                 ui->dirty = 1;
             }
         }
@@ -2858,7 +2869,7 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
         if (step_delta != 0) {
             int new_idx = (int)ui->cursor_slot_idx + step_delta;
             if (new_idx < 0) new_idx = 0;
-            if (new_idx > 7) new_idx = 7;
+            if (new_idx > PA_ACTIVE_SLOT_COUNT - 1) new_idx = PA_ACTIVE_SLOT_COUNT - 1;
             if ((uint8_t)new_idx != ui->cursor_slot_idx) {
                 uint8_t old_idx = ui->cursor_slot_idx;
                 uint8_t moved_slot = chain->slot_order[old_idx];
@@ -2898,7 +2909,12 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
             return;
         }
 
-        uint8_t slot = (chain && ui->cursor_slot_idx < 8) ? chain->slot_order[ui->cursor_slot_idx] : PA_SLOT_AMP;
+        uint8_t slot = (chain && ui->cursor_slot_idx < PA_ACTIVE_SLOT_COUNT) ? chain->slot_order[ui->cursor_slot_idx] : PA_SLOT_AMP;
+        if (slot == PA_SLOT_SYNTH && ui->view == PA_UI_VIEW_PARAM_EDIT) {   /* the SYNTH block opens the full Project Alpha laboratory */
+            ui->prev_view = PA_UI_VIEW_MAIN_GRID;
+            alpha_ui_enter(ui, chain);
+            return;
+        }
         uint8_t nparams = get_slot_param_count(ui, slot);
 
         if (ui->edit_mode == 0) {
@@ -3215,6 +3231,10 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
                 ui->prev_view = PA_UI_VIEW_SETTINGS;
                 ui->view = PA_UI_VIEW_SYS_INFO;
                 ui->sys_cursor = 0;
+            } else if (ui->settings_cursor == 11) {
+                /* Project Alpha Guitar Synthesizer */
+                ui->prev_view = PA_UI_VIEW_SETTINGS;
+                alpha_ui_enter(ui, chain);
             }
             ui->dirty = 1;
         }
@@ -3407,8 +3427,8 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
         if (buttons_pressed & PA_BTN_RIGHT) step += 1;
         if (step != 0) {
             int c = (int)ui->stomp_assign_cursor + step;
-            while (c < 0) c += PA_SLOT_COUNT;
-            ui->stomp_assign_cursor = (uint8_t)(c % PA_SLOT_COUNT);
+            while (c < 0) c += PA_ACTIVE_SLOT_COUNT;
+            ui->stomp_assign_cursor = (uint8_t)(c % PA_ACTIVE_SLOT_COUNT);
             ui->dirty = 1;
         }
         if (buttons_pressed & PA_BTN_PARA_CLICK) {
@@ -3640,6 +3660,9 @@ static void render_frame(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, const pa_c
         case PA_UI_VIEW_STOMP_ASSIGN:
             render_stomp_assign(ui);
             break;
+        case PA_UI_VIEW_PROJECT_ALPHA:
+            alpha_ui_render(ui, chain);
+            break;
         default:
             render_home_header(ui);
             render_home_grid(ui, chain);
@@ -3647,7 +3670,7 @@ static void render_frame(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, const pa_c
     }
 
     /* 3. Render 1-second Volume Popup Overlay if active outside Home */
-    if (ui->show_vol_popup && ui->view != PA_UI_VIEW_MAIN_GRID && ui->view != PA_UI_VIEW_DRUMS) {
+    if (ui->show_vol_popup && ui->view != PA_UI_VIEW_MAIN_GRID && ui->view != PA_UI_VIEW_DRUMS && ui->view != PA_UI_VIEW_PROJECT_ALPHA) {
         render_volume_popup(ui);
     }
 

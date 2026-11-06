@@ -50,7 +50,7 @@ static int run_case(const char *label, uint32_t budget_us, int drive_on) {
     {   /* single core */
         pa_fx_chain_t chain;
         pa_fx_chain_init(&chain, 0, fx_cab_ir_new());
-        if (drive_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_DRIVE, 1);
+        if (drive_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_DYNAMICS, 1);
         for (int k = 0; k < K; k++) {
             feed(out_single[k][0], out_single[k][1], k);
             pa_fx_chain_run_stereo(&chain, out_single[k][0], out_single[k][1], PA_BLOCK_N);
@@ -59,7 +59,7 @@ static int run_case(const char *label, uint32_t budget_us, int drive_on) {
     {   /* pipelined (a fresh chain, a fresh cabinet: the convolver state is a singleton) */
         pa_fx_chain_t chain;
         pa_fx_chain_init(&chain, 0, fx_cab_ir_new());
-        if (drive_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_DRIVE, 1);
+        if (drive_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_DYNAMICS, 1);
         memset(c1_L, 0, sizeof c1_L); memset(c1_R, 0, sizeof c1_R);
         pa_fx_chain_set_post_handoff(hook);
         for (int k = 0; k < K; k++) {
@@ -89,8 +89,8 @@ static int run_case(const char *label, uint32_t budget_us, int drive_on) {
 int main(void) {
     int fails = 0;
     fails += run_case("amp and everything in front on core 1 (budget 1300 us)", 1300u, 0);
-    fails += run_case("drive in front of the amp, run on core 0 (budget 1300 us)", 1300u, 1);
-    fails += run_case("the amp alone on core 1 (budget 1 us), drive on", 1u, 1);
+    fails += run_case("dynamics in front of the amp, run on core 0 (budget 1300 us)", 1300u, 1);
+    fails += run_case("the amp alone on core 1 (budget 1 us), dynamics on", 1u, 1);
     printf(fails ? "RESULT: FAILED\n" : "RESULT: ALL PASSED\n");
     return fails ? 1 : 0;
 }

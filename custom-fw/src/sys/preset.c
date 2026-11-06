@@ -53,10 +53,10 @@ static inline uint16_t pct16(uint8_t pct) { return (uint16_t)(((uint32_t)pct * 6
  * measured on P11) and every "stereo" preset was mono. AMP -> CAB -> EQ -> time FX is also the
  * order a mic'd amp + studio effects follows. */
 static const uint8_t k_default_order[PA_SLOT_COUNT] = {
-    PA_SLOT_DYNAMICS, PA_SLOT_DRIVE, PA_SLOT_AMP, PA_SLOT_CAB,
+    PA_SLOT_DYNAMICS, PA_SLOT_SYNTH, PA_SLOT_AMP, PA_SLOT_CAB,
     PA_SLOT_EQ, PA_SLOT_MOD, PA_SLOT_DELAY, PA_SLOT_REVERB
 };
-static const uint8_t k_default_stomp[4] = { PA_SLOT_DRIVE, PA_SLOT_MOD, PA_SLOT_DELAY, PA_SLOT_REVERB };
+static const uint8_t k_default_stomp[4] = { PA_SLOT_DYNAMICS, PA_SLOT_SYNTH, PA_SLOT_AMP, PA_SLOT_EQ };
 
 /* Neutral knob set used by EMPTY presets and as the base of every factory preset */
 static void preset_set_neutral(pa_preset_t *p) {
@@ -65,17 +65,13 @@ static void preset_set_neutral(pa_preset_t *p) {
     p->params[PA_SLOT_CAB][0] = pct16(100);      /* CAB level unity            */
     p->params[PA_SLOT_CAB][1] = 0;               /* CAB low-cut 20 Hz          */
     p->params[PA_SLOT_CAB][2] = 0;               /* CAB high-cut 18 kHz        */
-    p->params[PA_SLOT_DRIVE][2] = pct16(50);
-    p->params[PA_SLOT_REVERB][1] = 0;            /* reverb low-cut minimum     */
+    p->params[PA_SLOT_SYNTH][0] = pct16(45);     /* SYNTH Cutoff               */
+    p->params[PA_SLOT_SYNTH][1] = pct16(45);     /* SYNTH Resonance            */
+    p->params[PA_SLOT_SYNTH][2] = pct16(65);     /* SYNTH Env Depth            */
+    p->params[PA_SLOT_SYNTH][3] = pct16(80);     /* SYNTH Mix                  */
+    p->params[PA_SLOT_SYNTH][4] = pct16(65);     /* SYNTH Analog Drive         */
+    p->params[PA_SLOT_SYNTH][5] = pct16(15);     /* SYNTH Glide                */
     p->params[PA_SLOT_DYNAMICS][3] = pct16(100); /* DYN level unity            */
-    /* The delay, the reverb and the modulation were mixed far too hot: a
-     * fresh preset was 25 % feedback / 20 % delay, 45 % reverb and 30 %
-     * modulation, which is why they read as "exaggerated" on top of a guitar
-     * that already has the amp and the cab. The defaults are now in the
-     * range where an effect supports the tone instead of burying it. */
-    p->params[PA_SLOT_DELAY][1] = pct16(15);   /* the feedback */
-    p->params[PA_SLOT_DELAY][2] = pct16(10);   /* the mix      */
-    p->params[PA_SLOT_MOD][2]   = pct16(12);   /* the mix      */
 }
 
 static void init_single_preset(pa_preset_t *p, uint32_t preset_idx) {
@@ -114,7 +110,7 @@ static void init_single_preset(pa_preset_t *p, uint32_t preset_idx) {
             if (f->set & (1u << s))
                 for (uint8_t k = 0; k < PA_PRESET_NPARAMS; k++) p->params[s][k] = pct16(f->pct[s][k]);
         }
-        p->slot_enable_mask = f->mask;
+        p->slot_enable_mask = (uint8_t)(f->mask & 0x1Fu);
     }
     p->crc32 = pa_crc32(p, (uint32_t)sizeof(*p) - sizeof(uint32_t));
 }
@@ -430,8 +426,8 @@ int pa_preset_clean_user(void) {
 
 /* Number of knobs each node actually consumes (DSP param ids 0..n-1) */
 static const uint8_t k_slot_nparams[PA_SLOT_COUNT] = {
-    [PA_SLOT_DYNAMICS] = 4, [PA_SLOT_DRIVE] = 3, [PA_SLOT_AMP] = 6, [PA_SLOT_CAB] = 3,
-    [PA_SLOT_EQ] = 5, [PA_SLOT_MOD] = 4, [PA_SLOT_DELAY] = 4, [PA_SLOT_REVERB] = 4
+    [PA_SLOT_DYNAMICS] = 4, [PA_SLOT_SYNTH] = 6, [PA_SLOT_AMP] = 6, [PA_SLOT_CAB] = 3,
+    [PA_SLOT_EQ] = 5, [PA_SLOT_MOD] = 0, [PA_SLOT_DELAY] = 0, [PA_SLOT_REVERB] = 0
 };
 
 __attribute__((weak)) void pa_nam_prewarm(const pa_nam_model_t *m) { (void)m; }
@@ -444,11 +440,15 @@ void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
         chain->slot_order[s] = p->slot_order[s] < PA_SLOT_COUNT ? p->slot_order[s] : s;
         int en = (p->slot_enable_mask & (1u << s)) ? 1 : 0;
         pa_fx_chain_set_slot_enabled_now(chain, (pa_fx_slot_id_t)s, en);   /* chain is muted here */
-        if (s != PA_SLOT_AMP && s != PA_SLOT_CAB) {                 /* the EQ has types now too */
+        if (s != PA_SLOT_AMP && s != PA_SLOT_CAB) {                 /* the EQ and SYNTH have types too */
             pa_fx_chain_set_slot_type(chain, (pa_fx_slot_id_t)s, p->slot_type[s]);   /* IMP-13 */
         }
-        for (int k = 0; k < k_slot_nparams[s]; k++) {
-            pa_fx_chain_set_param(chain, (pa_fx_slot_id_t)s, k, pa_q16_to_q21(p->params[s][k]));
+        /* For PA_SLOT_SYNTH, loading the Project Alpha preset via set_slot_type already populates all 40+
+         * synthesizer parameters; only apply generic 6-knob overrides for non-SYNTH slots (or when user edits SYNTH knobs). */
+        if (s != PA_SLOT_SYNTH) {
+            for (int k = 0; k < k_slot_nparams[s]; k++) {
+                pa_fx_chain_set_param(chain, (pa_fx_slot_id_t)s, k, pa_q16_to_q21(p->params[s][k]));
+            }
         }
     }
     pa_fx_chain_set_preset_vol(chain, p->preset_vol);

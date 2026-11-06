@@ -413,7 +413,7 @@ to_grid()
 
 print("\n=== USB LOOPBACK (Settings, the second row from the end): a click switches the USB driver's loopback ===")
 d.emu_get_usb_loopback.restype = ctypes.c_int
-to_grid(); tap(HOME); tap(LEFT); tap(LEFT)                  # the Settings menu wraps: < on the first row = the last row (USB Mode), once more = USB Loopback
+to_grid(); tap(HOME); tap(LEFT); tap(LEFT); tap(LEFT)       # the Settings menu wraps: rows are 0..11, so < on the first row = Project Alpha (11), then USB Mode (10), then USB Loopback (9)
 d.emu_get_menu_cursors(_c3)
 check(_c3[0] == 9, f"the cursor is on USB Loopback (row {_c3[0]})")
 tick(5)
@@ -425,7 +425,7 @@ check(d.emu_get_usb_loopback() == 1, "another click turns it back ON")
 to_grid()
 
 print("\n=== USB MODE (Settings last row): a click cycles AMP -> INTERFACE -> INTERFACE + DIRECT MONITOR ===")
-to_grid(); tap(HOME); tap(LEFT)
+to_grid(); tap(HOME); tap(LEFT); tap(LEFT)
 d.emu_get_menu_cursors(_c3)
 check(_c3[0] == 10, f"the cursor is on USB Mode (row {_c3[0]})")
 check(d.emu_get_ui(40) == 0, "the mode starts as AMP (the unit's own sound)")
@@ -441,41 +441,41 @@ to_grid()
 if d.emu_get_ui(23) != 1:
     hold(HOME, 1700)
 check(d.emu_get_ui(23) == 1, "STOMP mode is on")
-check([d.emu_get_ui(26 + i) for i in range(4)] == [1, 5, 6, 7], f"P01's keys are DRV, MOD, DLY, REV ({[d.emu_get_ui(26 + i) for i in range(4)]})")
+check([d.emu_get_ui(26 + i) for i in range(4)] == [0, 1, 2, 4], f"P01's keys are DYN, SYNTH, AMP, EQ ({[d.emu_get_ui(26 + i) for i in range(4)]})")
 
 
-def drive_on():
+def synth_on():
     d.emu_get_telemetry(ctypes.byref(tel))
     return (tel.slot_active_mask >> 1) & 1
 
 
-on0 = drive_on()
+on0 = synth_on()
 tap(VOL_MINUS)
 tick(10)
-check(drive_on() != on0, "a short VOL- press toggled the effect on that key (DRIVE)")
-on1 = drive_on()
+check(synth_on() != on0, "a short VOL- press toggled the effect on that key (DYN)")
+on1 = synth_on()
 hold(VOL_MINUS, 300)
 tick(10)
-check(drive_on() != on1 and view() == VIEW_MAIN_GRID, "a 0.3 s press is still a footswitch press")
-on2 = drive_on()
+check(synth_on() != on1 and view() == VIEW_MAIN_GRID, "a 0.3 s press is still a footswitch press")
+on2 = synth_on()
 hold(VOL_MINUS, 1500)
 tick(10)
 check(view() == VIEW_STOMP_ASSIGN, f"VOL- held 1.5 s opened the assign menu (view {view()})")
-check(drive_on() == on2, "and it did not toggle the effect, neither on the press nor with auto-repeat")
-check(d.emu_get_ui(26) == 1, "the menu opens on the effect the key has now (DRIVE)")
+check(synth_on() == on2, "and it did not toggle the effect, neither on the press nor with auto-repeat")
+check(d.emu_get_ui(26) == 0, "the menu opens on the effect the key has now (DYN)")
 d.emu_ui_enc(2); tick(5)
 tap(PARA)
 check(view() == VIEW_MAIN_GRID, f"a PARA click confirmed and went back (view {view()})")
-check(d.emu_get_ui(26) == 3, f"VOL- now toggles the CAB (slot {d.emu_get_ui(26)}): the PARA turn moved two rows down from DRIVE... AMP then CAB")
+check(d.emu_get_ui(26) == 2, f"VOL- now toggles the AMP (slot {d.emu_get_ui(26)}): the PARA turn moved two rows down from DYN... SYNTH then AMP")
 
 hold(RIGHT, 1500)
 check(view() == VIEW_STOMP_ASSIGN, "> held opens its own assign menu")
 tap(VOL_MINUS)
-check(view() == VIEW_MAIN_GRID and d.emu_get_ui(29) == 7, f"VOL- backs out without a change (> still REV: {d.emu_get_ui(29)})")
+check(view() == VIEW_MAIN_GRID and d.emu_get_ui(29) == 4, f"VOL- backs out without a change (> still EQ: {d.emu_get_ui(29)})")
 hold(VOL_PLUS, 1500)
 check(view() == VIEW_STOMP_ASSIGN, "VOL+ held opens its menu")
 tap(HOME)
-check(view() == VIEW_MAIN_GRID and d.emu_get_ui(27) == 5, f"HOME backs out too (VOL+ still MOD: {d.emu_get_ui(27)})")
+check(view() == VIEW_MAIN_GRID and d.emu_get_ui(27) == 1, f"HOME backs out too (VOL+ still SYNTH: {d.emu_get_ui(27)})")
 
 print("\n=== PRESET mode is untouched: the keys act on the press and a held VOL+ still repeats ===")
 hold(HOME, 1700)
@@ -642,15 +642,15 @@ tick(10)
 def tag_pixels(row):
     """pixels of the tag box's right padding (x 192-193, inside the box in stomp mode; empty row background elsewhere) that differ from the row background at x 157"""
     im = lcd()
-    y0 = 44 + row * 24
+    y0 = 46 + row * 38
     ref = tuple(im[y0 + 10, 157])
     return sum(1 for yy in range(y0 + 5, y0 + 17) for x in (192, 193) if tuple(im[yy, x]) != ref)
 
 
 hold(HOME, 1700); tick(10)
 check(d.emu_get_ui(23) == 1, "STOMP mode on")
-px = [tag_pixels(r) for r in range(8)]
-check(sum(1 for v in px if v >= 20) == 4 and sum(1 for v in px if v == 0) == 4, f"STOMP mode: four rows (the four assigned effects) carry a key tag, the other four have none ({px} of 24 px per row)")
+px = [tag_pixels(r) for r in range(5)]
+check(sum(1 for v in px if v >= 20) == 4 and sum(1 for v in px if v == 0) == 1, f"STOMP mode: four rows (the four assigned effects) carry a key tag, the fifth has none ({px} of 24 px per row)")
 hold(HOME, 1700); tick(10)
 to_grid()
 
@@ -719,13 +719,13 @@ c0, p0 = tel.cursor_slot, tel.preset_index
 d.emu_ui_enc(1)
 tick(6)
 d.emu_get_telemetry(ctypes.byref(tel))
-check(tel.cursor_slot == (c0 + 1) % 8 and tel.preset_index == p0,
+check(tel.cursor_slot == (c0 + 1) % 5 and tel.preset_index == p0,
       f"one PARA step: cursor {c0} -> {tel.cursor_slot}, preset {p0} -> {tel.preset_index}")
 d.emu_ui_enc(-3)
 tick(6)
 d.emu_get_telemetry(ctypes.byref(tel))
-check(tel.cursor_slot == (c0 + 1 - 3) % 8 and tel.preset_index == p0,
-      f"three PARA steps back wrap round the 8 blocks: cursor -> {tel.cursor_slot}, preset still {tel.preset_index}")
+check(tel.cursor_slot == (c0 + 1 - 3) % 5 and tel.preset_index == p0,
+      f"three PARA steps back wrap round the 5 blocks: cursor -> {tel.cursor_slot}, preset still {tel.preset_index}")
 
 print("\n=== the Settings menus loop: up from the first row is the last row, down from the last is the first (PARA and < >) ===")
 d.emu_get_menu_cursors.argtypes = [ctypes.POINTER(ctypes.c_uint32)]

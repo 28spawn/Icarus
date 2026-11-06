@@ -45,7 +45,8 @@ typedef enum {
     PA_UI_VIEW_TELEMETRY    = 12,/* Settings: Performance (CPU%, SRAM, per-block load) */
     PA_UI_VIEW_SYS_INFO     = 13,/* Settings: System */
     PA_UI_VIEW_FACTORY_RESET= 14,/* Settings: Factory Reset / Clean User Presets Confirmation Dialog */
-    PA_UI_VIEW_STOMP_ASSIGN = 15 /* STOMP mode: pick the effect a key (VOL-, VOL+, <, >) toggles */
+    PA_UI_VIEW_STOMP_ASSIGN = 15,/* STOMP mode: pick the effect a key (VOL-, VOL+, <, >) toggles */
+    PA_UI_VIEW_PROJECT_ALPHA= 16 /* Project Alpha: Vintage Analog Laboratory Guitar Synthesizer */
 } pa_ui_view_t;
 
 #define PA_TUNER_RING 1024u   /* the decimated input ring: 702 samples for a detection plus what arrives while it is computed */
