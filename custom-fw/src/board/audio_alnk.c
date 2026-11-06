@@ -92,6 +92,8 @@ volatile uint32_t g_pa_isr_avg_us, g_pa_isr_peak_us;
 extern volatile uint8_t g_pa_cab_parts_limit;     /* fx_cab_ir.c */
 extern volatile uint8_t g_pa_stereo_allow;        /* fx_graph.c: 0 = the stereo cabinet / EQ run mono */
 extern volatile uint8_t g_pa_cab_stereo;          /* fx_graph.c: 1 = this block's cabinet ran in stereo */
+extern volatile uint8_t g_pa_synth_shed;          /* alpha.c: 1 = Project Alpha is shed to a dry pass-through (overload protection) */
+extern int alpha_is_active(void);                 /* alpha.c */
 extern volatile uint8_t g_pa_gov_level;           /* pa_audio_core.c: the load governor's level, 0..2 (2 = the cabinet's partitions are cut); the overload popup reads it */
 volatile uint8_t g_pa_gov_swap;                    /* set by the audio thread when it applied a swap in this block: the governor does not count that block (a swap stalls ~0.8 ms on purpose) */
 
@@ -130,6 +132,19 @@ void pa_alnk0_isr_c(void) {
         if (++s_consec >= 8u && !g_pa_audio.bypass) { g_pa_audio.bypass = 1; st->auto_bypass = 1u; pa_evlog(PA_EV_BYPASS, dt / 24u, 0u); }
     } else {
         s_consec = 0u;
+    }
+    /* SYNTH SHED. The auto-bypass above needs eight overruns IN A ROW; a spiky load (every second or third block late) never trips it
+     * but still starves the main loop until the unit freezes. So count the late blocks in a window of 64 and, when 8 or more ran past
+     * the budget while Project Alpha is on, drop the synth to a dry pass-through (alpha.c) before anything else. Preset/model swaps
+     * (g_pa_gov_swap) are not counted: they stall one block on purpose. */
+    if (dt > 200u * 24u && !g_pa_gov_swap) {
+        static uint32_t s_w_blocks, s_w_over;
+        s_w_blocks++;
+        if (dt > PA_ISR_BUDGET_CYC) s_w_over++;
+        if (s_w_blocks >= 64u) {
+            if (s_w_over >= 8u && alpha_is_active() && !g_pa_synth_shed) { g_pa_synth_shed = 1u; pa_evlog(PA_EV_BYPASS, dt / 24u, 1u); }
+            s_w_blocks = 0u; s_w_over = 0u;
+        }
     }
     /* LOAD GOVERNOR: the two cores cannot run every effect at full quality at once (the amp alone takes 83 % of core 1). When the
      * audio interrupt's average time climbs toward the block length, run the drive's clipper at 2x instead of 4x (level 1) and use

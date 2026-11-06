@@ -43,6 +43,7 @@
 #include "../../include/pa_settings.h"
 #include "../../include/pa_audio.h"
 #include "../ui/project_alpha_ui.h"
+#include "../ui/lab_ui.h"
 #include "../effects/project_alpha/alpha.h"
 
 __attribute__((weak)) void alpha_ui_enter(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
@@ -331,30 +332,18 @@ static const char *get_slot_param_label(const pa_ui_ctx_t *ui, uint8_t slot, uin
 }
 
 /* UI Primitives */
+/* The faceplate look is SQUARE: these keep their old names (every screen calls them) but no longer round the corners. */
 static void draw_rounded_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t c) {
-    if (w < 4 || h < 4) return;
-    st7735s_fill_rect(x + 2, y, w - 4, 1, c);
-    st7735s_fill_rect(x + 2, y + h - 1, w - 4, 1, c);
-    st7735s_fill_rect(x, y + 2, 1, h - 4, c);
-    st7735s_fill_rect(x + w - 1, y + 2, 1, h - 4, c);
-    st7735s_fill_rect(x + 1, y + 1, 1, 1, c);
-    st7735s_fill_rect(x + w - 2, y + 1, 1, 1, c);
-    st7735s_fill_rect(x + 1, y + h - 2, 1, 1, c);
-    st7735s_fill_rect(x + w - 2, y + h - 2, 1, 1, c);
+    if (w < 2 || h < 2) return;
+    lab_outline(x, y, w, h, c);
 }
 
 static void fill_rounded_box(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t c) {
-    if (w < 4 || h < 4) return;
-    st7735s_fill_rect(x + 2, y, w - 4, h, c);
-    st7735s_fill_rect(x, y + 2, 2, h - 4, c);
-    st7735s_fill_rect(x + w - 2, y + 2, 2, h - 4, c);
-    st7735s_fill_rect(x + 1, y + 1, 1, 1, c);
-    st7735s_fill_rect(x + w - 2, y + 1, 1, 1, c);
-    st7735s_fill_rect(x + 1, y + h - 2, 1, 1, c);
-    st7735s_fill_rect(x + w - 2, y + h - 2, 1, 1, c);
+    if (w < 2 || h < 2) return;
+    st7735s_fill_rect(x, y, w, h, c);
 }
 
-static void fill_circle(int16_t cx, int16_t cy, int16_t r, uint16_t col) {
+__attribute__((unused)) static void fill_circle(int16_t cx, int16_t cy, int16_t r, uint16_t col) {
     for (int16_t dy = -r; dy <= r; dy++) {
         int16_t dx = 0;
         while (dx * dx + dy * dy <= r * r) dx++;
@@ -411,6 +400,7 @@ static void draw_seg_meter(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8
  * different anchor points, so icon / % / Bluetooth jumped between screens).
  * Anchored by its RIGHT edge and vertical CENTRE. Blinks red when critical (IMP-12). */
 #define STATUS_RIGHT_X  232u
+static uint16_t s_sbg = ONYX_COL_BG;       /* what the % text under the status icons is drawn over: the header band sets its face colour */
 static uint8_t s_draw_charging;      /* set by draw_status_cluster for the battery icon: USB power is present, the charge bolt is drawn in the body */
 #define STATUS_CY       14u        /* the cluster fits in y 0..29: the design kit's screens (Groove Station) own everything below y 30 */
 static uint16_t draw_battery_r(uint16_t right_x, uint16_t cy, uint8_t pct, uint8_t show_pct, uint8_t warn, uint8_t pct_below) {
@@ -441,10 +431,10 @@ static uint16_t draw_battery_r(uint16_t right_x, uint16_t cy, uint8_t pct, uint8
         uint16_t w = 0; while (bstr[w]) w++;
         /* the % sits BELOW the battery, centred under its body and between it and the line at y=39 (the cluster is a small square: battery top right, its % under it, Bluetooth beside the battery, the USB diamond under Bluetooth) */
         if (pct_below) {
-            ui_draw_str((uint16_t)(x + 11u - (w * 6u) / 2u), (uint16_t)(cy + 12u), bstr, (warn ? ONYX_COL_BAD : ONYX_COL_TEXT), ONYX_COL_BG);
+            ui_draw_str((uint16_t)(x + 11u - (w * 6u) / 2u), (uint16_t)(cy + 12u), bstr, (warn ? ONYX_COL_BAD : ONYX_COL_TEXT), s_sbg);
         } else {                                           /* in a row: the % sits to the left of the battery, on its centre line */
             left = (uint16_t)(x - 5u - w * 6u);
-            ui_draw_str(left, (uint16_t)(cy - 3u), bstr, (warn ? ONYX_COL_BAD : ONYX_COL_TEXT), ONYX_COL_BG);
+            ui_draw_str(left, (uint16_t)(cy - 3u), bstr, (warn ? ONYX_COL_BAD : ONYX_COL_TEXT), s_sbg);
         }
     }
     return left;
@@ -629,48 +619,29 @@ static const char *param_value_text(const pa_ui_ctx_t *ui, uint8_t slot, uint8_t
 static void draw_param_card(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                             const char *label, int32_t pct, const char *vtxt, const char *unit,
                             uint16_t col, int is_sel) {
-    /* 1. Background tile */
-    fill_rounded_box(x, y, w, h, ONYX_COL_PANEL);
+    /* 1. The card: face, rule, and amber (focus) or green (editing) corner brackets */
+    lab_card(x, y, w, h, is_sel);
+    const uint16_t face = is_sel ? LAB_COL_FACE_HI : LAB_COL_FACE;
 
-    /* 2. Focus / Edit outline */
-    if (is_sel == 1) {
-        /* Hover focus: yellow border */
-        draw_rounded_rect(x, y, w, h, ONYX_COL_SELECT);
-    } else if (is_sel == 2) {
-        /* Value adjust edit mode: green border */
-        draw_rounded_rect(x, y, w, h, ONYX_COL_OK);
-        draw_rounded_rect(x + 1, y + 1, w - 2, h - 2, ONYX_COL_OK);
-    } else {
-        draw_rounded_rect(x, y, w, h, ONYX_COL_LINE);
-    }
+    /* 2. Legend, top left: the block's colour pip and the knob's name */
+    st7735s_fill_rect((uint16_t)(x + 5), (uint16_t)(y + 6), 3, 5, col);
+    uint16_t lcol = (is_sel == 2) ? LAB_COL_PHOS : ((is_sel == 1) ? ALPHA_COL_AMBER : ONYX_COL_MUTE);
+    ui_draw_str((uint16_t)(x + 11), (uint16_t)(y + 6), label, lcol, face);
 
-    /* 3. Parameter label at top left */
-    uint16_t lcol = (is_sel == 2) ? ONYX_COL_OK : ((is_sel == 1) ? ONYX_COL_SELECT : ONYX_COL_MUTE);
-    ui_draw_str(x + 6, y + 6, label, lcol, ONYX_COL_PANEL);
-
-    /* 4. Large bold value in center (0.0 .. 10.0, or a number + a small unit) */
+    /* 3. The value, big, centred (0.0 .. 10.0, or a number + a small unit) */
     uint16_t vlen = 0, ulen = 0;
     while (vtxt[vlen]) vlen++;
     while (unit && unit[ulen]) ulen++;
-    uint16_t text_w = (uint16_t)(vlen * 12u - 2u);           /* 2x font width */
-    if (ulen) text_w = (uint16_t)(text_w + 3u + ulen * 6u - 1u);  /* + a gap + the 1x unit */
-    uint16_t vx = (w > text_w) ? (x + (w - text_w) / 2) : (x + 4);
-    uint16_t vy = y + (h / 2) - 7;
-    ui_draw_str_scaled(vx, vy, vtxt, ONYX_COL_TEXT, ONYX_COL_PANEL, 2);
+    uint16_t text_w = (uint16_t)(vlen * 12u - 2u);
+    if (ulen) text_w = (uint16_t)(text_w + 3u + ulen * 6u - 1u);
+    uint16_t vx = (w > text_w) ? (uint16_t)(x + (w - text_w) / 2) : (uint16_t)(x + 4);
+    uint16_t vy = (uint16_t)(y + (h / 2) - 9);
+    ui_draw_str_scaled(vx, vy, vtxt, is_sel == 2 ? LAB_COL_PHOS : ALPHA_COL_TEXT, face, 2);
     if (ulen)
-        ui_draw_str((uint16_t)(vx + vlen * 12u + 1u), (uint16_t)(vy + 7u), unit, ONYX_COL_MUTE, ONYX_COL_PANEL);
+        ui_draw_str((uint16_t)(vx + vlen * 12u + 1u), (uint16_t)(vy + 7u), unit, ONYX_COL_MUTE, face);
 
-    /* 5. Horizontal mini-slider progress bar at bottom */
-    uint16_t bar_pad = 6;
-    uint16_t bar_w_max = (w > bar_pad * 2) ? (w - bar_pad * 2) : 20;
-    uint16_t bar_y = y + h - 9;
-    st7735s_fill_rect(x + bar_pad, bar_y, bar_w_max, 4, ONYX_COL_LINE);
-
-    uint16_t fill_w = (uint16_t)((pct * (int32_t)bar_w_max) / 100);
-    if (fill_w > bar_w_max) fill_w = bar_w_max;
-    if (fill_w > 0) {
-        st7735s_fill_rect(x + bar_pad, bar_y, fill_w, 4, col);
-    }
+    /* 4. The tick ruler along the bottom, with its needle */
+    lab_ruler((uint16_t)(x + 6), (uint16_t)(y + h - 12), (uint16_t)(w - 12), pct, col, 0, is_sel != 0);
 }
 
 /* 5-band vertical EQ slider widget for EQ block and Global EQ */
@@ -711,7 +682,8 @@ static void draw_eq_bands(uint16_t x0, uint16_t x1, uint16_t top, uint16_t bot,
         }
 
         /* Thumb box */
-        fill_rounded_box(cx - 9, (uint16_t)(thumb_y - 4), 18, 8, ink);
+        st7735s_fill_rect((uint16_t)(cx - 9), (uint16_t)(thumb_y - 4), 18, 8, ink);
+        st7735s_fill_rect((uint16_t)(cx - 1), (uint16_t)(thumb_y - 2), 2, 4, ONYX_COL_BG);
 
         /* Frequency label */
         uint16_t flen = 0;
@@ -741,7 +713,7 @@ static void draw_eq_bands(uint16_t x0, uint16_t x1, uint16_t top, uint16_t bot,
 
 
 /* Map PA_SLOT_* to Onyx icon array index in onyx_block_icons.h */
-static uint8_t slot_to_onyx_icon_idx(uint8_t slot) {
+__attribute__((unused)) static uint8_t slot_to_onyx_icon_idx(uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return ONYX_SLOT_DYN;   /* 0 */
         case PA_SLOT_SYNTH:    return ONYX_SLOT_DRIVE; /* synth glyph reuses slot 1 art */
@@ -760,7 +732,7 @@ static uint8_t slot_to_onyx_icon_idx(uint8_t slot) {
  * off already. The home grid used this test; the editor, the list view and the block title did not and kept saying ON until something else redrew them. */
 #define NODE_SHOWN_ON(nd) ((nd) && (nd)->active && (nd)->fade_dir >= 0)
 
-static void draw_grid_icon(uint16_t tile_x, uint16_t tile_y, uint8_t slot, int is_on) {
+__attribute__((unused)) static void draw_grid_icon(uint16_t tile_x, uint16_t tile_y, uint8_t slot, int is_on) {
     uint8_t icon_idx = slot_to_onyx_icon_idx(slot);
     const uint8_t *px = onyx_icons[icon_idx];
     const uint16_t *pal = onyx_icon_palette[icon_idx][is_on ? 0 : 1];
@@ -786,258 +758,95 @@ static void draw_grid_icon(uint16_t tile_x, uint16_t tile_y, uint8_t slot, int i
     }
 }
 
-/* Render Home Screen Header */
-static void render_home_header(const pa_ui_ctx_t *ui) {
-    /* 1. "PRESET" label at (10, 19) */
-    ui_draw_str(10, 19, (ui->play_mode == 1) ? "STOMP" : "PRESET", (ui->play_mode == 1) ? ONYX_COL_OK : ONYX_COL_MUTE, ONYX_COL_BG);
+/* ---- HOME: the rack ----------------------------------------------------------------------------------------------------------------
+ * Header band (preset number, mode tag, status icons), a level panel (IN / OUT LED ladders and the preset volume), then one rack row per
+ * block on a patch line: block plate, model name, and the block's first knob on a tick ruler. The same rows serve the LIST view, without
+ * the ruler. A frame is ~330 display-list commands. */
+#define RACK_Y0     68
+#define RACK_PITCH  32
+#define RACK_H      29
 
-    /* 2. Yellow preset identifier "P08" at (8, 32) in 3x scale */
+static void render_home_header(const pa_ui_ctx_t *ui) {
+    /* 1. Band + amber rule */
+    st7735s_fill_rect(0, 0, DISP_W, 26, LAB_COL_FACE);
+    st7735s_fill_rect(0, 26, DISP_W, 1, ALPHA_COL_AMBER);
+
+    /* 2. Preset number, 2x, and what mode the unit is in */
     char pstr[4];
     fmt_preset(pstr, ui->preset_index);
-    ui_draw_str_scaled(8, 32, pstr, ONYX_COL_SELECT, ONYX_COL_BG, 3);
-
-    /* 3. Status icons: USB + Bluetooth + Battery (one row on the y=14 centre line) */
-    draw_status_cluster(ui, 0);
-
-    /* 4. Segmented IN / OUT level meters (symmetrically framing preset number) */
-    draw_seg_meter(119, 38, 104, 5, ui->in_peak_pct, "IN");
-    draw_seg_meter(119, 51, 104, 5, ui->out_peak_pct, "OUT");
-
-    /* 5. Moving Mode Header Banner OR Master Volume Bar */
+    ui_draw_str_scaled(8, 6, pstr, ALPHA_COL_AMBER, LAB_COL_FACE, 2);
     if (ui->view == PA_UI_VIEW_MOVING) {
-        fill_rounded_box(8, 66, 224, 20, ONYX_COL_PANEL);
-        draw_rounded_rect(8, 66, 224, 20, ONYX_COL_SELECT);
-        char mov_buf[20] = "MOVING ";
+        char mov_buf[20] = "MOVE ";
         const char *slbl = get_slot_label(ui->moving_slot);
-        int mi = 7;
+        int mi = 5;
         while (*slbl && mi < 18) mov_buf[mi++] = *slbl++;
         mov_buf[mi] = '\0';
-        ui_draw_str(14, 72, mov_buf, ONYX_COL_SELECT, ONYX_COL_PANEL);
+        ui_draw_str(52, 10, mov_buf, ALPHA_COL_AMBER, LAB_COL_FACE);
     } else {
-        /* IMP-04: speaker icon (10 px), bar (4 px) and % text (7 px) share ONE centre line.
-         * The old code had the icon centred at y=75.5 and the bar at y=76.5. */
-        const uint16_t cy = 76;
-        draw_speaker(10, (uint16_t)(cy - 5), ONYX_COL_MUTE);
-        st7735s_fill_rect(28, (uint16_t)(cy - 2), 164, 4, ONYX_COL_LINE);
-        uint16_t vw = (uint16_t)((ui->preset_volume * 164u) / 100u);
-        if (vw > 164u) vw = 164u;
-        if (vw > 0) {
-            st7735s_fill_rect(28, (uint16_t)(cy - 2), vw, 4, ONYX_COL_TEXT);
-        }
-        char vstr[6];
-        if (ui->preset_volume >= 100u) {
-            vstr[0] = '1'; vstr[1] = '0'; vstr[2] = '0'; vstr[3] = '%'; vstr[4] = '\0';
-        } else {
-            fmt_u2(vstr, ui->preset_volume);
-            vstr[2] = '%'; vstr[3] = '\0';
-        }
-        ui_draw_str(198, (uint16_t)(cy - 3), vstr, ONYX_COL_TEXT, ONYX_COL_BG);
+        lab_led(52, 10, ui->play_mode == 1, LAB_COL_PHOS);
+        ui_draw_str(62, 10, (ui->play_mode == 1) ? "STOMP" : "PRESET", (ui->play_mode == 1) ? LAB_COL_PHOS : ONYX_COL_MUTE, LAB_COL_FACE);
     }
 
-    /* 6. Divider line across y = 90 in ONYX_COL_LINE */
-    st7735s_fill_rect(0, 90, DISP_W, 1, ONYX_COL_LINE);
+    /* 3. Status icons: USB + Bluetooth + Battery (one row on the y=14 centre line) */
+    s_sbg = LAB_COL_FACE;
+    draw_status_cluster(ui, 0);
+    s_sbg = ONYX_COL_BG;
 
-    /* IMP-12: low-battery banner replaces the volume row while the warning is active */
+    /* 4. Level panel: IN / OUT ladders and the preset volume; the low-battery banner replaces it while the warning is active */
     if (ui->batt_warn && ui->view != PA_UI_VIEW_MOVING) {
-        fill_rounded_box(8, 66, 224, 20, ONYX_COL_BAD);
-        ui_draw_str(16, 72, (ui->batt_warn >= 2) ? "BATTERY CRITICAL - CHARGE NOW" : "LOW BATTERY - CHARGE SOON",
-                    ONYX_COL_TEXT, ONYX_COL_BAD);
+        lab_panel(6, 31, 228, 32, ONYX_COL_BAD, ONYX_COL_BAD);
+        ui_draw_str(14, 43, (ui->batt_warn >= 2) ? "BATTERY CRITICAL - CHARGE NOW" : "LOW BATTERY - CHARGE SOON",
+                    ALPHA_COL_TEXT, ONYX_COL_BAD);
+        return;
     }
-}
-
-/* IMP-07: STOMP mode footer - which button toggles which block, and its state */
-static void render_stomp_strip(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
-    static const char * const k_keys[4] = { "VOL-", "VOL+", "<", ">" };
-    st7735s_fill_rect(0, 64, DISP_W, 25, ONYX_COL_BG);          /* replaces the volume row */
-    for (int i = 0; i < 4; i++) {
-        uint8_t slot = ui->stomp_map[i] < PA_ACTIVE_SLOT_COUNT ? ui->stomp_map[i] : PA_SLOT_SYNTH;
-        const fx_node_t *nd = chain ? chain->slots[slot] : 0;
-        int on = NODE_SHOWN_ON(nd);
-        uint16_t x = (uint16_t)(6 + i * 58), col = get_slot_color(slot);
-        fill_rounded_box(x, 66, 54, 20, on ? col : ONYX_COL_PANEL);
-        if (!on) draw_rounded_rect(x, 66, 54, 20, ONYX_COL_DIM);
-        ui_draw_str((uint16_t)(x + 4), 72, k_keys[i], on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? col : ONYX_COL_PANEL);
-        ui_draw_str((uint16_t)(x + 30), 72, get_slot_short(slot), on ? ONYX_COL_BG : ONYX_COL_TEXT, on ? col : ONYX_COL_PANEL);
-    }
-}
-
-/* Render Home Screen 2x4 Grid matching tokens.py & screens.py */
-static void render_home_grid(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
-    /* 1. Continuous Signal Path Underlay */
-    /* Enters at (2, 129) -> across row 1 to (235, 129) -> down to gap y = 166 ->
-     * returns left across gap to (5, 166) -> down to row 2 at (5, 203) -> exits at (238, 203) */
-    st7735s_fill_rect(2, 128, 233, 2, ONYX_COL_DIM);
-    st7735s_fill_rect(234, 128, 2, 38, ONYX_COL_DIM);
-    st7735s_fill_rect(5, 165, 231, 2, ONYX_COL_DIM);
-    st7735s_fill_rect(5, 165, 2, 38, ONYX_COL_DIM);
-    st7735s_fill_rect(5, 202, 233, 2, ONYX_COL_DIM);
-
-    if (ui->play_mode == 1 && ui->view == PA_UI_VIEW_MAIN_GRID && !ui->batt_warn) render_stomp_strip(ui, chain);
-
-    /* 2. 8 Tiles in 2x4 Grid at GRID_COLS = [9, 66, 124, 181], GRID_ROWS = [100, 174] */
-    const uint16_t cols[4] = { 9, 66, 124, 181 };
-    const uint16_t rows[2] = { 100, 174 };
-
-    (void)cols;
-    static const uint16_t gx[PA_ACTIVE_SLOT_COUNT] = { 18, 95, 172, 56, 134 };   /* 3 + 2 focused blocks */
-    for (int i = 0; i < PA_ACTIVE_SLOT_COUNT; i++) {
-        uint16_t x = gx[i];
-        uint16_t y = rows[i / 3];
-        uint8_t slot = (chain && chain->slot_order[i] < PA_SLOT_COUNT) ? chain->slot_order[i] : i;
-        const fx_node_t *nd = chain ? chain->slots[slot] : 0;
-        int on = NODE_SHOWN_ON(nd) ? 1 : 0;
-        /* The CAB can be muted by the output routing (LINE out + "CAB ON LINE OUT"
-         * off). Show that on the tile instead of pretending the cabinet is there -
-         * this is the "the cab disappeared" case. */
-        if (slot == PA_SLOT_CAB && chain && chain->force_cab_off) on = 0;
-        int is_moving = (ui->view == PA_UI_VIEW_MOVING && i == ui->cursor_slot_idx);
-        int is_cursor = (ui->view != PA_UI_VIEW_MOVING && i == ui->cursor_slot_idx);
-
-        if (is_moving) {
-            y -= 4; /* Raised when lifted */
-            /* Yellow outline */
-            draw_rounded_rect(x - 2, y - 2, 54, 62, ONYX_COL_SELECT);
-            /* Left/Right side arrow indicators */
-            ui_draw_str(x - 6, y + 24, "<", ONYX_COL_SELECT, ONYX_COL_BG);
-            ui_draw_str(x + 52, y + 24, ">", ONYX_COL_SELECT, ONYX_COL_BG);
-        } else if (is_cursor) {
-            draw_rounded_rect(x - 2, y - 2, 54, 62, ONYX_COL_SELECT);
-            draw_rounded_rect(x - 3, y - 3, 56, 64, ONYX_COL_SELECT);
-        }
-
-        /* Tile card box (50x58 px) */
-        fill_rounded_box(x, y, 50, 58, ONYX_COL_PANEL);
-
-        /* Border */
-        uint16_t col = get_slot_color(slot);
-        draw_rounded_rect(x, y, 50, 58, on ? col : ONYX_COL_DIM);
-
-        /* Corner LED dot */
-        fill_circle(x + 42, y + 8, 2, on ? col : ONYX_COL_LINE);
-
-        /* Center glyph: 28x28 icon placed at (x + 11, y + 10) per ICON_SPEC.md */
-        draw_grid_icon(x, y, slot, on);
-
-        /* Bottom label */
-        const char *lbl = get_slot_label(slot);
-        if (slot == PA_SLOT_CAB && chain && chain->force_cab_off) {
-            /* explicit "no cab" marker so the state is never ambiguous */
-            ui_draw_str(x + 8, y + 46, "NOCAB", ONYX_COL_BAD, ONYX_COL_PANEL);
-        }
-        int is_a2 = (slot == PA_SLOT_AMP && is_a2_capture_active(ui));
-        if (is_a2) {
-            /* Draw "AMP" and "A2" side-by-side centered in 50px tile */
-            /* "AMP" (18px) + 2px space + "A2" (12px) = 32px width */
-            uint16_t tx = (uint16_t)(x + 25 - 16);
-            ui_draw_str(tx, y + 46, "AMP", on ? ONYX_COL_TEXT : ONYX_COL_MUTE, ONYX_COL_PANEL);
-            ui_draw_str(tx + 20, y + 46, "A2", on ? ONYX_COL_SELECT : ONYX_COL_DIM, ONYX_COL_PANEL);
-        } else {
-            uint16_t len = 0;
-            while (lbl[len]) len++;
-            uint16_t tx = (uint16_t)(x + 25 - (len * 6) / 2);
-            ui_draw_str(tx, y + 46, lbl, on ? ONYX_COL_TEXT : ONYX_COL_MUTE, ONYX_COL_PANEL);
-        }
-    }
-}
-
-/* Alternative Home List View (Settings > Display > Home view = LIST) */
-static void render_home_list(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
-    /* Header */
-    char pstr[4];
-    fmt_preset(pstr, ui->preset_index);
-    ui_draw_str_scaled(8, 8, pstr, ONYX_COL_SELECT, ONYX_COL_BG, 3);
-    if (ui->view == PA_UI_VIEW_MOVING) {
-        ui_draw_str(8, 30, "MOVING", ONYX_COL_SELECT, ONYX_COL_BG);
-    } else if (ui->play_mode == 1) {
-        ui_draw_str(8, 30, "STOMP", ONYX_COL_OK, ONYX_COL_BG);
-    }
-
-    /* Middle empty space: IN, OUT, and VOL stacked vertically with clean spacing */
-    /* 1. IN level bar */
-    ui_draw_str(74, 6, "IN", ONYX_COL_MUTE, ONYX_COL_BG);
-    st7735s_fill_rect(98, 8, 64, 4, ONYX_COL_LINE);
-    uint16_t in_w = (uint16_t)((ui->in_peak_pct * 64u) / 100u);
-    if (in_w > 64u) in_w = 64u;
-    if (in_w > 0) st7735s_fill_rect(98, 8, in_w, 4, (ui->in_peak_pct > 92) ? ONYX_COL_BAD : ONYX_COL_OK);
-
-    /* 2. OUT level bar */
-    ui_draw_str(74, 16, "OUT", ONYX_COL_MUTE, ONYX_COL_BG);
-    st7735s_fill_rect(98, 18, 64, 4, ONYX_COL_LINE);
-    uint16_t out_w = (uint16_t)((ui->out_peak_pct * 64u) / 100u);
-    if (out_w > 64u) out_w = 64u;
-    if (out_w > 0) st7735s_fill_rect(98, 18, out_w, 4, (ui->out_peak_pct > 92) ? ONYX_COL_BAD : ONYX_COL_OK);
-
-    /* 3. Preset Volume bar */
-    ui_draw_str(74, 26, "VOL", ONYX_COL_MUTE, ONYX_COL_BG);
-    st7735s_fill_rect(98, 28, 46, 4, ONYX_COL_LINE);
-    uint16_t vw = (uint16_t)((ui->preset_volume * 46u) / 100u);
-    if (vw > 46u) vw = 46u;
-    if (vw > 0) st7735s_fill_rect(98, 28, vw, 4, ONYX_COL_TEXT);
+    lab_panel(6, 31, 228, 32, ALPHA_COL_SCOPE_BG, ALPHA_COL_GRID);
+    ui_draw_str(11, 36, "IN", ONYX_COL_MUTE, ALPHA_COL_SCOPE_BG);
+    lab_ladder(30, 36, 140, 6, ui->in_peak_pct);
+    ui_draw_str(11, 49, "OUT", ONYX_COL_MUTE, ALPHA_COL_SCOPE_BG);
+    lab_ladder(30, 49, 140, 6, ui->out_peak_pct);
+    st7735s_fill_rect(177, 34, 1, 26, ALPHA_COL_GRID);
+    ui_draw_str(185, 35, "VOL", ONYX_COL_MUTE, ALPHA_COL_SCOPE_BG);
     char vstr[6];
-    if (ui->preset_volume >= 100u) {
-        vstr[0] = '1'; vstr[1] = '0'; vstr[2] = '0'; vstr[3] = '%'; vstr[4] = '\0';
-    } else {
-        fmt_u2(vstr, ui->preset_volume);
-        vstr[2] = '%'; vstr[3] = '\0';
-    }
-    ui_draw_str(148, 26, vstr, ONYX_COL_TEXT, ONYX_COL_BG);
+    if (ui->preset_volume >= 100u) { vstr[0] = '1'; vstr[1] = '0'; vstr[2] = '0'; vstr[3] = '\0'; }
+    else { fmt_u2(vstr, ui->preset_volume); vstr[2] = '\0'; }
+    ui_draw_str_scaled(185, 45, vstr, ALPHA_COL_AMBER, ALPHA_COL_SCOPE_BG, 2);
+}
 
-    draw_status_cluster(ui, 1);
+/* One rack row per block. detail: also the block's first knob on a tick ruler (GRID view); 0 = names only (LIST view). */
+static void render_home_rack(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, int detail) {
+    /* The patch line the signal runs down, behind the rows */
+    st7735s_fill_rect(9, RACK_Y0 + 2, 2, PA_ACTIVE_SLOT_COUNT * RACK_PITCH - 6, ONYX_COL_DIM);
 
-    st7735s_fill_rect(0, 39, DISP_W, 1, ONYX_COL_LINE);
-
-    /* 8 rows of 24px */
     for (int i = 0; i < PA_ACTIVE_SLOT_COUNT; i++) {
-        uint8_t slot = (chain && chain->slot_order[i] < PA_SLOT_COUNT) ? chain->slot_order[i] : i;
+        const uint16_t y  = (uint16_t)(RACK_Y0 + i * RACK_PITCH);
+        const uint16_t cy = (uint16_t)(y + 14);
+        uint8_t slot = (chain && chain->slot_order[i] < PA_SLOT_COUNT) ? chain->slot_order[i] : (uint8_t)i;
         const fx_node_t *nd = chain ? chain->slots[slot] : 0;
         int on = NODE_SHOWN_ON(nd) ? 1 : 0;
-        int sel = (i == ui->cursor_slot_idx);
-        uint16_t y = (uint16_t)(46 + i * 38);
+        const int no_cab = (slot == PA_SLOT_CAB && chain && chain->force_cab_off);   /* the cab is muted by the output routing: say so */
+        if (no_cab) on = 0;
+        const uint16_t col = get_slot_color(slot);
+        const int sel    = (i == ui->cursor_slot_idx);
+        const int moving = (ui->view == PA_UI_VIEW_MOVING && sel);
+        const uint16_t face = sel ? LAB_COL_FACE_HI : LAB_COL_FACE;
 
-        if (sel) {
-            fill_rounded_box(4, y + 1, 232, 22, ONYX_COL_PANEL);
-            st7735s_fill_rect(4, y + 5, 3, 14, ONYX_COL_SELECT);
-            if (ui->view == PA_UI_VIEW_MOVING) {
-                draw_rounded_rect(4, y + 1, 232, 22, ONYX_COL_SELECT);
-            }
-        }
+        /* patch dot on the line + the stub into the row */
+        st7735s_fill_rect(7, (uint16_t)(cy - 3), 6, 6, on ? col : ONYX_COL_LINE);
+        st7735s_fill_rect(13, (uint16_t)(cy - 1), 5, 2, on ? col : ONYX_COL_DIM);
 
-        /* Block chip */
-        uint16_t bcol = get_slot_color(slot);
-        fill_rounded_box(12, y + 3, 38, 16, on ? bcol : ONYX_COL_PANEL);
-        if (!on) draw_rounded_rect(12, y + 3, 38, 16, ONYX_COL_DIM);
+        /* the row */
+        if (moving) lab_outline(16, (uint16_t)(y - 2), 220, (uint16_t)(RACK_H + 4), ALPHA_COL_AMBER);
+        lab_card(18, y, 216, RACK_H, sel);
+
+        /* block plate: lit in the block's colour when on */
+        st7735s_fill_rect(21, (uint16_t)(y + 3), 38, (uint16_t)(RACK_H - 6), on ? col : ONYX_COL_BG);
+        if (!on) lab_outline(21, (uint16_t)(y + 3), 38, (uint16_t)(RACK_H - 6), ONYX_COL_DIM);
         const char *sh = get_slot_short(slot);
         uint16_t shl = 0; while (sh[shl]) shl++;
-        /* IMP-04: centre the 2/3-letter label in the 38 px chip (was left-aligned at x=20) */
-        ui_draw_str((uint16_t)(12 + (38 - (shl * 6 - 1)) / 2), y + 7, sh, on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? bcol : ONYX_COL_PANEL);
+        ui_draw_str((uint16_t)(21 + (38 - (shl * 6 - 1)) / 2), (uint16_t)(cy - 3), sh, on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? col : ONYX_COL_BG);
 
-        /* Model name, truncated so it never runs into the OFF / chevron column */
-        char mbuf[24];
-        const char *mname_full = get_slot_model_name(ui, slot, ui->slot_type[slot]);
-        {
-            int max_c = on ? 26 : 21;                 /* (196-58)/6 = 23 with OFF, (218-58)/6 = 26 */
-            if (ui->play_mode == 1) max_c = 16;       /* STOMP mode: the key tag sits at x 158..194 */
-            int k = 0;
-            while (mname_full[k] && k < max_c && k < (int)sizeof(mbuf) - 1) { mbuf[k] = mname_full[k]; k++; }
-            if (mname_full[k] && k >= 2) { mbuf[k - 1] = '.'; mbuf[k - 2] = '.'; }
-            mbuf[k] = '\0';
-        }
-        const char *mname = mbuf;
-        if (slot == PA_SLOT_AMP && is_a2_capture_active(ui)) {
-            char base[20];
-            int max_base_len = 15;
-            strncpy(base, mname, max_base_len);
-            base[max_base_len] = '\0';
-            int blen = (int)strlen(base);
-            while (blen > 0 && base[blen - 1] == ' ') { base[--blen] = '\0'; }
-            ui_draw_str(58, y + 7, base, on ? ONYX_COL_TEXT : ONYX_COL_MUTE, sel ? ONYX_COL_PANEL : ONYX_COL_BG);
-            uint16_t tag_x = (uint16_t)(58 + (blen + 1) * 6);
-            ui_draw_str(tag_x, y + 7, "[A2]", on ? ONYX_COL_SELECT : ONYX_COL_DIM, sel ? ONYX_COL_PANEL : ONYX_COL_BG);
-        } else {
-            ui_draw_str(58, y + 7, mname, on ? ONYX_COL_TEXT : ONYX_COL_MUTE, sel ? ONYX_COL_PANEL : ONYX_COL_BG);
-        }
-
-        /* STOMP mode: the key(s) that toggle this effect, in a small tag after the model name (the grid has the strip for this) */
+        /* STOMP: which pedal keys toggle this block, as a tag top right */
+        uint16_t name_right = 216;
         if (ui->play_mode == 1) {
             static const char * const k_tag[4] = { "V-", "V+", "<", ">" };
             char tag[8];
@@ -1049,49 +858,95 @@ static void render_home_list(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) 
             tag[tn] = '\0';
             if (tn > 0) {
                 const uint16_t tw = (uint16_t)(tn * 6 + 6);
-                const uint16_t tx = (uint16_t)(194 - tw);
-                fill_rounded_box(tx, y + 3, tw, 16, on ? bcol : ONYX_COL_PANEL_HI);
-                if (!on) draw_rounded_rect(tx, y + 3, tw, 16, ONYX_COL_DIM);
-                ui_draw_str((uint16_t)(tx + 3), y + 7, tag, on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? bcol : ONYX_COL_PANEL_HI);
+                const uint16_t tx = (uint16_t)(216 - tw);
+                st7735s_fill_rect(tx, (uint16_t)(y + 3), tw, 11, on ? col : ONYX_COL_PANEL_HI);
+                ui_draw_str((uint16_t)(tx + 3), (uint16_t)(y + 5), tag, on ? ONYX_COL_BG : ONYX_COL_MUTE, on ? col : ONYX_COL_PANEL_HI);
+                name_right = (uint16_t)(tx - 4);
             }
         }
 
-        /* Status & chevron / movement indicator */
-        if (!on) {
-            ui_draw_str(196, y + 7, "OFF", ONYX_COL_MUTE, sel ? ONYX_COL_PANEL : ONYX_COL_BG);
+        /* model name, cut so it never runs into the tag / LED column */
+        char mbuf[28];
+        const char *full = get_slot_model_name(ui, slot, ui->slot_type[slot]);
+        {
+            int max_c = (name_right - 64) / 6;
+            if (max_c > (int)sizeof(mbuf) - 1) max_c = (int)sizeof(mbuf) - 1;
+            int k = 0;
+            while (full[k] && k < max_c) { mbuf[k] = full[k]; k++; }
+            if (full[k] && k >= 2) { mbuf[k - 1] = '.'; mbuf[k - 2] = '.'; }
+            mbuf[k] = '\0';
         }
-        if (ui->view == PA_UI_VIEW_MOVING && sel) {
-            ui_draw_str(218, y + 7, "< >", ONYX_COL_SELECT, ONYX_COL_PANEL);
+        const uint16_t ny = detail ? (uint16_t)(y + 5) : (uint16_t)(cy - 3);
+        const uint16_t nbg = face;
+        if (slot == PA_SLOT_AMP && is_a2_capture_active(ui)) {
+            char base[20];
+            strncpy(base, mbuf, 15); base[15] = '\0';
+            int blen = (int)strlen(base);
+            while (blen > 0 && base[blen - 1] == ' ') base[--blen] = '\0';
+            ui_draw_str(64, ny, base, on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, nbg);
+            ui_draw_str((uint16_t)(64 + (blen + 1) * 6), ny, "A2", on ? ALPHA_COL_AMBER : ONYX_COL_DIM, nbg);
         } else {
-            ui_draw_str(224, y + 7, ">", sel ? ONYX_COL_SELECT : ONYX_COL_DIM, sel ? ONYX_COL_PANEL : ONYX_COL_BG);
+            ui_draw_str(64, ny, mbuf, on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, nbg);
         }
+
+        /* the block's first knob on a tick ruler; or the cab-muted marker */
+        if (detail) {
+            if (no_cab) {
+                ui_draw_str(64, (uint16_t)(y + 17), "MUTED BY OUTPUT ROUTING", ONYX_COL_BAD, nbg);
+            } else if (get_slot_param_count(ui, slot) > 0) {
+                int32_t pct = (int32_t)(((int64_t)ui->slot_params[slot][0] * 100) / PA_Q21_ONE);
+                if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+                char vtxt[8];
+                const char *unit = param_value_text(ui, slot, 0, ui->slot_params[slot][0], pct, vtxt);
+                char vbuf[12];
+                int vn = 0;
+                for (const char *c = vtxt; *c && vn < 6; c++) vbuf[vn++] = *c;
+                for (const char *c = unit; c && *c && vn < 10; c++) vbuf[vn++] = *c;
+                vbuf[vn] = '\0';
+                const char *plab = get_slot_param_label(ui, slot, 0);
+                ui_draw_str(64, (uint16_t)(y + 17), plab, ONYX_COL_MUTE, nbg);
+                lab_ruler(104, (uint16_t)(y + 22), 74, pct, on ? col : ONYX_COL_DIM, 0, sel);
+                ui_draw_str((uint16_t)(214 - vn * 6), (uint16_t)(y + 17), vbuf, on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, nbg);
+            }
+        }
+
+        /* state LED, and the cursor / move marker */
+        lab_led(222, (uint16_t)(y + 5), on, col);
+        if (moving)   ui_draw_str(216, (uint16_t)(y + 17), "<>", ALPHA_COL_AMBER, face);
+        else if (sel) ui_draw_str(222, (uint16_t)(y + 17), ">", ALPHA_COL_AMBER, face);
     }
+
+    /* what the buttons do here */
+    ui_draw_str(8, 231, (ui->play_mode == 1) ? "PEDAL KEYS TOGGLE   HOME HOLD: PRESET"
+                                              : (ui->view == PA_UI_VIEW_MOVING ? "<> MOVE   PARA DROP"
+                                                                               : "<> PICK   PARA OPEN   HOLD: MOVE"),
+                ONYX_COL_DIM, ONYX_COL_BG);
 }
 
-/* Sub-screen Title Bar */
+static void render_home_grid(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
+    render_home_rack(ui, chain, 1);
+}
+
+/* LIST view (Settings > Display > Home view): the same rack, names only */
+static void render_home_list(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
+    render_home_header(ui);
+    render_home_rack(ui, chain, 0);
+}
+
+/* Sub-screen Title Bar: the lab header band, a square mark in the block's colour, the title; the block's ON / OFF switch or the status icons. */
 static void render_sub_title_bar(const char *title, uint16_t color, int has_toggle, int is_on, int is_toggle_sel, const pa_ui_ctx_t *ui) {
-    ui_draw_str(10, 10, "<", ONYX_COL_MUTE, ONYX_COL_BG);
-    ui_draw_str(28, 10, title, color, ONYX_COL_BG);
+    lab_header_band();
+    ui_draw_str(10, 11, "<", ONYX_COL_MUTE, LAB_COL_FACE);
+    st7735s_fill_rect(24, 12, 6, 6, color);
+    ui_draw_str(36, 11, title, color, LAB_COL_FACE);
 
     if (has_toggle) {
-        if (is_toggle_sel) {
-            draw_rounded_rect(184, 3, 48, 24, ONYX_COL_SELECT);
-        }
-        if (is_on) {
-            fill_rounded_box(186, 5, 44, 20, ONYX_COL_TEXT);
-            ui_draw_str(192, 11, "ON", ONYX_COL_BG, ONYX_COL_TEXT);
-            fill_circle(220, 15, 7, ONYX_COL_BG);
-        } else {
-            fill_rounded_box(186, 5, 44, 20, ONYX_COL_PANEL);
-            draw_rounded_rect(186, 5, 44, 20, ONYX_COL_DIM);
-            fill_circle(196, 15, 7, ONYX_COL_DIM);
-            ui_draw_str(206, 11, "OFF", ONYX_COL_MUTE, ONYX_COL_PANEL);
-        }
+        lab_switch(184, 5, is_on, color, is_toggle_sel ? 1 : 0);
     } else if (ui) {
+        s_sbg = LAB_COL_FACE;
         draw_status_cluster(ui, 0);
+        s_sbg = ONYX_COL_BG;
     }
-
-    st7735s_fill_rect(0, 30, DISP_W, 1, ONYX_COL_LINE);
 }
 
 /* Render Block Parameter Editor */
@@ -1112,28 +967,23 @@ static void render_param_edit(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
     render_sub_title_bar(blk_lbl, is_active ? blk_col : ONYX_COL_MUTE, 1, is_active, is_toggle_sel, ui);
 
     /* Model Selector Card at (8, 36, w=224, h=48) */
-    fill_rounded_box(8, 36, 224, 48, ONYX_COL_PANEL);
-    uint16_t m_border = is_model_sel ? (ui->edit_mode ? ONYX_COL_OK : ONYX_COL_SELECT) : ONYX_COL_LINE;
-    draw_rounded_rect(8, 36, 224, 48, m_border);
-    if (is_model_sel && ui->edit_mode) {
-        draw_rounded_rect(7, 35, 226, 50, ONYX_COL_OK);
-    }
+    lab_card(8, 36, 224, 48, is_model_sel ? (ui->edit_mode ? 2 : 1) : 0);
 
     /* Left accent vertical bar */
     st7735s_fill_rect(8, 40, 4, 40, is_active ? blk_col : ONYX_COL_DIM);
 
     /* Left and Right navigation chevrons */
-    ui_draw_str(16, 52, "<", is_model_sel ? (ui->edit_mode ? ONYX_COL_OK : ONYX_COL_SELECT) : ONYX_COL_MUTE, ONYX_COL_PANEL);
-    ui_draw_str(218, 52, ">", is_model_sel ? (ui->edit_mode ? ONYX_COL_OK : ONYX_COL_SELECT) : ONYX_COL_MUTE, ONYX_COL_PANEL);
+    ui_draw_str(16, 52, "<", is_model_sel ? (ui->edit_mode ? LAB_COL_PHOS : ALPHA_COL_AMBER) : ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
+    ui_draw_str(218, 52, ">", is_model_sel ? (ui->edit_mode ? LAB_COL_PHOS : ALPHA_COL_AMBER) : ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
 
     /* Big model name */
     const char *mname = get_slot_model_name(ui, slot, ui->slot_type[slot]);
     uint16_t mlen = 0;
     while (mname[mlen]) mlen++;
     if (mlen <= 12) {
-        ui_draw_str_scaled(30, 42, mname, ONYX_COL_TEXT, ONYX_COL_PANEL, 2);
+        ui_draw_str_scaled(30, 42, mname, ALPHA_COL_TEXT, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE, 2);
     } else {
-        ui_draw_str(30, 45, mname, ONYX_COL_TEXT, ONYX_COL_PANEL);
+        ui_draw_str(30, 45, mname, ALPHA_COL_TEXT, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
     }
 
     /* Sub-row: [ STOCK MODEL ]  AMP 09 OF 20  OR  [ NAM A2 CAPTURE ]  NAM 21 OF 21 */
@@ -1159,7 +1009,7 @@ static void render_param_edit(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
     det_buf[di++] = (char)('0' + (total_m / 10u));
     det_buf[di++] = (char)('0' + (total_m % 10u));
     det_buf[di] = '\0';
-    ui_draw_str(32 + badge_w + 6, 68, det_buf, ONYX_COL_MUTE, ONYX_COL_PANEL);
+    ui_draw_str(32 + badge_w + 6, 68, det_buf, ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
 
     /* Dedicated rendering for EQ block: 5-band vertical sliders! */
     if (slot == PA_SLOT_EQ && ui->slot_type[PA_SLOT_EQ] == 0u) {
@@ -1530,7 +1380,7 @@ static void render_saved_toast(const pa_ui_ctx_t *ui) {
     else if (ui->toast_kind == 1u) ui_draw_str_scaled((uint16_t)(ok ? 84 : 72), 50, ok ? "RESET" : "NOT RESET", ONYX_COL_BG, acc, 2);
     else                      ui_draw_str_scaled((uint16_t)(ok ? 84 : 66), 50, ok ? "SAVED" : "NOT SAVED", ONYX_COL_BG, acc, 2);
 
-    fill_circle(120, 108, 20, ONYX_COL_PANEL_HI);
+    st7735s_fill_rect((uint16_t)((120) - 20), (uint16_t)((108) - 20), 40, 40, ONYX_COL_PANEL_HI);
     if (ok) {
         draw_check(120, 108, acc);
     } else {
@@ -1652,7 +1502,7 @@ static void io_slider(uint16_t y, int sel, const pa_ui_ctx_t *ui, const char *la
     st7735s_fill_rect(14, y + 18, 212, 4, ONYX_COL_LINE);
     if (bw > 212) bw = 212;
     st7735s_fill_rect(14, y + 18, bw, 4, sel ? ONYX_COL_SELECT : ONYX_COL_TEXT);
-    fill_circle(14 + bw, y + 20, 4, sel ? ONYX_COL_SELECT : ONYX_COL_TEXT);
+    st7735s_fill_rect((uint16_t)((14 + bw) - 4), (uint16_t)((y + 20) - 4), 8, 8, sel ? ONYX_COL_SELECT : ONYX_COL_TEXT);
 }
 
 /* an option row: a label on the left, a boxed value on the right */
@@ -1754,7 +1604,7 @@ static void render_display_settings(const pa_ui_ctx_t *ui) {
     uint16_t bw = (uint16_t)((ui->display_brightness * 212u) / 100u);
     if (bw > 212) bw = 212;
     st7735s_fill_rect(14, 56, bw, 4, sel0 ? (ui->edit_mode ? ONYX_COL_OK : ONYX_COL_SELECT) : ONYX_COL_TEXT);
-    fill_circle(14 + bw, 58, 4, sel0 ? (ui->edit_mode ? ONYX_COL_OK : ONYX_COL_SELECT) : ONYX_COL_TEXT);
+    st7735s_fill_rect((uint16_t)((14 + bw) - 4), (uint16_t)((58) - 4), 8, 8, sel0 ? (ui->edit_mode ? ONYX_COL_OK : ONYX_COL_SELECT) : ONYX_COL_TEXT);
 
     /* Row 1: Auto Dim */
     int sel1 = (ui->sub_cursor == 1);
@@ -1796,11 +1646,11 @@ static void render_display_settings(const pa_ui_ctx_t *ui) {
     if (ui->display_battery_pct) {
         fill_rounded_box(190, 154, 38, 21, ONYX_COL_TEXT);
         ui_draw_str(195, 160, "ON", ONYX_COL_BG, ONYX_COL_TEXT);
-        fill_circle(217, 164, 5, ONYX_COL_BG);
+        st7735s_fill_rect((uint16_t)((217) - 5), (uint16_t)((164) - 5), 10, 10, ONYX_COL_BG);
     } else {
         fill_rounded_box(190, 154, 38, 21, ONYX_COL_PANEL);
         draw_rounded_rect(190, 154, 38, 21, ONYX_COL_DIM);
-        fill_circle(200, 164, 5, ONYX_COL_DIM);
+        st7735s_fill_rect((uint16_t)((200) - 5), (uint16_t)((164) - 5), 10, 10, ONYX_COL_DIM);
         ui_draw_str(208, 160, "OFF", ONYX_COL_MUTE, ONYX_COL_PANEL);
     }
 
@@ -2000,7 +1850,7 @@ static void render_stomp_assign(const pa_ui_ctx_t *ui) {
         const int sel = (ui->stomp_assign_cursor == r);
         fill_rounded_box(8, y, 224, 20, ONYX_COL_PANEL);
         draw_rounded_rect(8, y, 224, 20, sel ? ONYX_COL_SELECT : ONYX_COL_DIM);
-        fill_circle(22, (uint16_t)(y + 10), 4, get_slot_color((uint8_t)r));
+        st7735s_fill_rect((uint16_t)((22) - 4), (uint16_t)(((uint16_t)(y + 10)) - 4), 8, 8, get_slot_color((uint8_t)r));
         ui_draw_str(34, (uint16_t)(y + 6), get_slot_label((uint8_t)r), sel ? ONYX_COL_SELECT : ONYX_COL_TEXT, ONYX_COL_PANEL);
         uint16_t x = 226;                                    /* the keys on this effect, right-aligned */
         for (int k = 3; k >= 0; k--) {

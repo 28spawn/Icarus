@@ -191,6 +191,7 @@ Run-HostTest -Name "pa_test_alpha_filter" -Source "custom-fw/test/project_alpha/
 Run-HostTest -Name "pa_test_alpha_osc" -Source "custom-fw/test/project_alpha/test_oscillator.c" -Srcs @("custom-fw/src/effects/project_alpha/alpha_osc.c") -Extra @("-lm")
 Run-HostTest -Name "pa_test_alpha_pitch" -Source "custom-fw/test/project_alpha/test_pitch.c" -Srcs @("custom-fw/src/effects/project_alpha/alpha_pitch.c") -Extra @("-lm")
 Run-HostTest -Name "pa_test_alpha_chain" -Source "custom-fw/test/project_alpha/test_audio_chain.c" -Srcs $dspSrcs -Extra @("-lm")
+Run-HostTest -Name "pa_test_alpha_follow" -Source "custom-fw/test/project_alpha/test_follow.c" -Srcs $alphaSrcs -Extra @("-lm")
 
 Run-HostTest -Name "pa_test_full" -Source "custom-fw/test/test_full_firmware.c" -Srcs (Srcs "host_full")
 

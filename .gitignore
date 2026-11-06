@@ -148,3 +148,6 @@ custom-fw/USB-AUDIO-PLAN.md
 custom-fw/USER-STORE.md
 custom-fw/Recovery-Pocket_AMP_Custom/
 custom-fw/ble_matrix.csv
+
+# generated UI screenshots (custom-fw/emu/snap_screens.py)
+custom-fw/emu/ui_shots/

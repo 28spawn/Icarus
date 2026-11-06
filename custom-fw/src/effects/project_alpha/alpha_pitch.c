@@ -7,8 +7,7 @@
 #define ALPHA_FS     ((float)PA_SAMPLE_RATE)
 #define ALPHA_DEC_FS (ALPHA_FS / (float)ALPHA_PITCH_DEC) /* 22,050 Hz */
 
-/* Evaluate 64 lags per 64-sample audio block -> 500 lags finish in ~8 blocks (256 decimated samples = 512 raw samples),
- * or even faster if background poll runs between blocks. */
+/* Lags the audio path evaluates per block ONLY when no main-loop poller is running (host tests, a stalled main loop). */
 #define ALPHA_PITCH_SLICE_LAGS 72u
 #define ALPHA_YIN_THRESH       0.16f
 
@@ -37,6 +36,7 @@ void alpha_pitch_init(alpha_pitch_t *p) {
     p->midi_note       = 45u; /* A2 */
     p->sensitivity     = 0.50f;
     p->smoothing       = 0.35f;
+    p->bg_age          = 0xFFFFu;   /* no poller seen yet: the audio path runs the lag search until one shows up */
 }
 
 void alpha_pitch_reset(alpha_pitch_t *p) {
@@ -52,6 +52,7 @@ void alpha_pitch_reset(alpha_pitch_t *p) {
     p->midi_note       = (uint8_t)clampf(floorf(p->note + 0.5f), 24.0f, 108.0f);
     p->sensitivity     = sens;
     p->smoothing       = smth;
+    p->bg_age          = 0xFFFFu;
 }
 
 void alpha_pitch_set_params(alpha_pitch_t *p, float sensitivity_01, float smoothing_01) {
@@ -72,16 +73,24 @@ static void pitch_det_start(alpha_pitch_t *p, float hf_ratio, float blk_rms) {
         if (v < 0) v = -v;
         if (v > pk) pk = v;
     }
-    /* Scale window so peak sits around 512..1023 -> 256-term sum of squared differences fits 32-bit uint32_t */
+    /* Scale the window so its peak sits around 512..1023 -> a 256-term sum of squared differences fits 32 bits.
+     * Done ONCE here into a flat buffer, so the lag loops below are plain loads with no masking or shifting. */
     int rsh = 0;
     while ((pk >> rsh) > 1023 && rsh < 10) rsh++;
     int lsh = 0;
     while (rsh == 0 && (pk << (lsh + 1)) <= 1023 && lsh < 5) lsh++;
+    for (uint32_t i = 0; i < ALPHA_PITCH_NEED; i++) {
+        p->det_win[i] = (int16_t)((ring_at(p, base + i) << lsh) >> rsh);
+    }
 
-    p->det_rsh   = (int8_t)rsh;
-    p->det_lsh   = (int8_t)lsh;
-    p->det_tau   = 1u;
-    p->det_state = 1u;
+    p->det_tau    = 1u;
+    p->det_found  = 0u;
+    p->det_cand   = 0u;
+    p->det_run    = 0.0f;
+    p->det_best_v = 1.0e9f;
+    p->det_best_tau = 0u;
+    p->det_dn[0]  = 1.0f;
+    p->det_state  = 1u;
 }
 
 static void pitch_commit_estimate(alpha_pitch_t *p, float f_est, float conf) {
@@ -182,50 +191,19 @@ static void pitch_commit_estimate(alpha_pitch_t *p, float f_est, float conf) {
     }
 }
 
-static void pitch_det_finish(alpha_pitch_t *p) {
-    float run = 0.0f;
-    float best_v = 1.0e9f;
-    uint32_t best_tau = 0u;
-    uint32_t pick = 0u;
-    float dn[ALPHA_PITCH_TAU_MAX + 2u];
-
-    dn[0] = 1.0f;
-    for (uint32_t tau = 1u; tau <= ALPHA_PITCH_TAU_MAX; tau++) {
-        run += (float)p->det_d[tau];
-        dn[tau] = (run > 1.0e-9f) ? ((float)p->det_d[tau] * (float)tau / run) : 1.0f;
-    }
-
-    for (uint32_t tau = ALPHA_PITCH_TAU_MIN; tau <= ALPHA_PITCH_TAU_MAX - 1u; tau++) {
-        if (dn[tau] < best_v) {
-            best_v   = dn[tau];
-            best_tau = tau;
-        }
-    }
-
-    /* YIN absolute threshold search: picks the FIRST local minimum below threshold
-     * (prevents jumping to sub-harmonics while rejecting upper harmonics via CMND) */
-    for (uint32_t tau = ALPHA_PITCH_TAU_MIN; tau <= ALPHA_PITCH_TAU_MAX - 1u; tau++) {
-        if (dn[tau] < ALPHA_YIN_THRESH) {
-            while (tau + 1u <= ALPHA_PITCH_TAU_MAX - 1u && dn[tau + 1u] < dn[tau]) {
-                tau++;
-            }
-            pick = tau;
-            break;
-        }
-    }
+/* pick: the lag whose dip crossed the YIN threshold and was walked down to its minimum, or 0 when nothing did. */
+static void pitch_det_finish(alpha_pitch_t *p, uint32_t pick) {
+    const float *dn = p->det_dn;
 
     if (pick == 0u) {
-        if (best_v < 0.42f) {
-            pick = best_tau;
+        if (p->det_best_v < 0.42f) {
+            pick = p->det_best_tau;
         } else {
             pitch_commit_estimate(p, 0.0f, 0.0f);
             return;
         }
     }
 
-    /* Octave-harmonic check: if pick/2 also has a very strong dip (within 0.04 of dn[pick]),
-     * pick was a sub-octave period (2*T0); prefer pick/2. Conversely, because we searched from
-     * TAU_MIN upward, we already found the shortest valid period T0 first! */
     float dip_val = dn[pick];
     float conf    = clampf(1.0f - dip_val * 1.4f, 0.0f, 1.0f);
 
@@ -249,31 +227,58 @@ static void pitch_det_finish(alpha_pitch_t *p) {
     pitch_commit_estimate(p, f_hz, conf);
 }
 
+/* Evaluate up to max_lags lags of the pending detection. The normalised difference is built as the lags come in, so the search stops
+ * at the first dip below the YIN threshold (once it has been walked down to its minimum): a high note costs ~50 lags, not 500. */
 static void pitch_det_slice(alpha_pitch_t *p, uint32_t max_lags) {
     if (p->det_state == 0u) return;
 
-    const uint32_t base = (uint32_t)p->det_w0 - ALPHA_PITCH_NEED;
-    const int rsh = p->det_rsh;
-    const int lsh = p->det_lsh;
-    uint32_t tau  = p->det_tau;
+    const int16_t *w = p->det_win;
+    float    *dn  = p->det_dn;
+    float     run = p->det_run;
+    uint32_t  tau = p->det_tau;
 
-    /* Stride-2 inner window sum (256 pairs across the 512-sample decimated window = 1024 raw samples = 23.2 ms):
-     * covers down to 43 Hz while cutting inner-loop MACs in half. */
     for (uint32_t s = 0; s < max_lags && tau <= ALPHA_PITCH_TAU_MAX; s++, tau++) {
+        /* Stride-2 window sum: 256 terms across the 512-sample decimated window (23.2 ms), unrolled by 4. */
+        const int16_t *wt = w + tau;
         uint32_t acc = 0u;
-        for (uint32_t j = 0; j < ALPHA_PITCH_WIN_LEN; j += 2u) {
-            const int32_t a = (ring_at(p, base + j) << lsh) >> rsh;
-            const int32_t b = (ring_at(p, base + j + tau) << lsh) >> rsh;
-            const int32_t d = a - b;
-            acc += (uint32_t)(d * d);
+        for (uint32_t j = 0; j < ALPHA_PITCH_WIN_LEN; j += 8u) {
+            const int32_t d0 = (int32_t)w[j]      - (int32_t)wt[j];
+            const int32_t d1 = (int32_t)w[j + 2u] - (int32_t)wt[j + 2u];
+            const int32_t d2 = (int32_t)w[j + 4u] - (int32_t)wt[j + 4u];
+            const int32_t d3 = (int32_t)w[j + 6u] - (int32_t)wt[j + 6u];
+            acc += (uint32_t)(d0 * d0) + (uint32_t)(d1 * d1) + (uint32_t)(d2 * d2) + (uint32_t)(d3 * d3);
         }
-        p->det_d[tau] = acc;
+        const float d = (float)acc;
+        run += d;
+        const float v = (run > 1.0e-9f) ? (d * (float)tau / run) : 1.0f;
+        dn[tau] = v;
+
+        if (tau >= ALPHA_PITCH_TAU_MIN && tau <= ALPHA_PITCH_TAU_MAX - 1u) {
+            if (v < p->det_best_v) { p->det_best_v = v; p->det_best_tau = (uint16_t)tau; }
+            if (!p->det_found) {
+                if (v < ALPHA_YIN_THRESH) { p->det_found = 1u; p->det_cand = (uint16_t)tau; }
+            } else if (v < dn[p->det_cand]) {
+                p->det_cand = (uint16_t)tau;                                  /* still going down: the minimum is further on */
+            } else {
+                /* dn[cand + 1] (= v) is not lower than dn[cand]: cand is the minimum and the interpolation has its three points */
+                p->det_state = 0u;
+                p->det_run   = run;
+                pitch_det_finish(p, p->det_cand);
+                return;
+            }
+        } else if (p->det_found) {
+            p->det_state = 0u;                                                 /* ran off the end of the search range while walking down */
+            p->det_run   = run;
+            pitch_det_finish(p, p->det_cand);
+            return;
+        }
     }
+    p->det_run = run;
     p->det_tau = (uint16_t)tau;
 
     if (tau > ALPHA_PITCH_TAU_MAX) {
         p->det_state = 0u;
-        pitch_det_finish(p);
+        pitch_det_finish(p, p->det_found ? p->det_cand : 0u);
     }
 }
 
@@ -282,6 +287,7 @@ void alpha_pitch_feed_block(alpha_pitch_t *p, const float *in, int n) {
 
     p->onset   = 0u;
     p->release = 0u;
+    if (p->bg_age < 65535u) p->bg_age++;
 
     /* Gate thresholds scaled by user sensitivity (0..1) */
     float sens_scale = 1.8f - 1.3f * p->sensitivity; /* 0.5 .. 1.8 */
@@ -351,12 +357,12 @@ void alpha_pitch_feed_block(alpha_pitch_t *p, const float *in, int n) {
 
         /* Start a new YIN window every 64 decimated samples (128 input samples = 2.9 ms)
          * once the 1024-sample decimated ring has been primed. */
-        if (p->det_state == 0u && p->samples_since_upd >= 64u && p->ring_w >= ALPHA_PITCH_NEED) {
+        if (p->det_state == 0u && p->samples_since_upd >= ALPHA_PITCH_UPD && p->ring_w >= ALPHA_PITCH_NEED) {
             p->samples_since_upd = 0u;
             pitch_det_start(p, hf_ratio, rms_lp);
         }
-        if (p->det_state == 1u) {
-            pitch_det_slice(p, ALPHA_PITCH_SLICE_LAGS);
+        if (p->det_state == 1u && p->bg_age > ALPHA_PITCH_BG_STALE) {
+            pitch_det_slice(p, ALPHA_PITCH_SLICE_LAGS);                   /* no main-loop poller: do it here, as before */
         }
     } else {
         p->det_state = 0u;
@@ -374,6 +380,8 @@ void alpha_pitch_feed_block(alpha_pitch_t *p, const float *in, int n) {
 }
 
 void alpha_pitch_poll_background(alpha_pitch_t *p) {
-    if (!p || p->det_state == 0u) return;
-    pitch_det_slice(p, 128u);
+    if (!p) return;
+    p->bg_age = 0u;                                   /* the main loop is alive: the audio path leaves the lag search to it */
+    if (p->det_state == 0u) return;
+    pitch_det_slice(p, ALPHA_PITCH_BG_LAGS);
 }

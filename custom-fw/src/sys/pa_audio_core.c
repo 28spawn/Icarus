@@ -35,6 +35,7 @@ volatile uint8_t g_pa_gov_level;           /* set by the audio interrupt's load 
 #define PA_IN_TRACE_N 192u
 volatile uint16_t g_pa_in_trace[PA_IN_TRACE_N];        /* the raw input's peak per 46 ms since the audio started (>> 8 of the 24-bit value) */
 volatile int16_t  g_pa_in_trace_mean[PA_IN_TRACE_N];  /* ... and its mean */
+__attribute__((weak)) volatile uint8_t g_pa_synth_shed;   /* alpha.c owns it; this weak copy keeps builds without Project Alpha linking */
 volatile uint8_t g_pa_overload_force;     /* tests: 1 = behave as overloaded (the popup) */
 static volatile uint32_t s_swap_done_seq;   /* counts the swaps the audio thread has applied: the main loop redraws the screen for each one (the screen is drawn from the chain, which a swap changes) */
 static uint32_t pa_perf_permille(uint32_t modelled);   /* the measured CPU load on the device, the model elsewhere (below) */
@@ -752,7 +753,7 @@ void pa_audio_core_tick(pa_fx_chain_t *chain, pa_ui_ctx_t *ui, pa_drums_t *drums
             if (pa_xrun_burst(xr - s_xr_prev, sw - s_sw_prev)) s_xr_burst_t = now;     /* a swap costs one overrun: only the overruns beyond the swaps' own count */
             s_xr_prev = xr; s_sw_prev = sw; s_xr_t0 = now;
         }
-        const uint8_t ol = (uint8_t)(g_pa_audio.bypass || !g_pa_stereo_allow || g_pa_gov_level >= 2u || g_pa_overload_force ||
+        const uint8_t ol = (uint8_t)(g_pa_audio.bypass || !g_pa_stereo_allow || g_pa_gov_level >= 2u || g_pa_overload_force || g_pa_synth_shed ||
                                      (s_xr_burst_t != 0u && (uint32_t)(now - s_xr_burst_t) < 1500u));
         if (ol && !s_ol_prev && (s_ol_last == 0u || (uint32_t)(now - s_ol_last) >= 8000u)) {
             ui->overload_ms = 3000u; s_ol_until = now + 3000u; s_ol_last = now; ui->dirty = 1;

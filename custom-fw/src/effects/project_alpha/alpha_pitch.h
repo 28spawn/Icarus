@@ -12,6 +12,9 @@
 #define ALPHA_PITCH_TAU_MIN   14u   /* 22050 / 14 = 1575 Hz */
 #define ALPHA_PITCH_TAU_MAX   512u  /* 22050 / 512 = 43.07 Hz */
 #define ALPHA_PITCH_NEED      (ALPHA_PITCH_WIN_LEN + ALPHA_PITCH_TAU_MAX)
+#define ALPHA_PITCH_UPD       128u  /* decimated samples between detections (5.8 ms): ~170 pitch updates/s is plenty for a guitar */
+#define ALPHA_PITCH_BG_LAGS   96u   /* lags one background poll evaluates (main loop, not the audio interrupt) */
+#define ALPHA_PITCH_BG_STALE  64u   /* audio blocks without a background poll before the audio path does the work itself */
 
 typedef struct {
     /* Public tracking outputs (Section 4.3 & 10.4) */
@@ -43,10 +46,16 @@ typedef struct {
     uint8_t  det_state;         /* 0 = idle, 1 = accumulating lags */
     uint16_t det_w0;            /* Ring write snapshot at start of window */
     uint16_t det_tau;           /* Next lag to evaluate */
-    int8_t   det_rsh, det_lsh;  /* Window block-floating-point scaling */
+    uint8_t  det_found;         /* 1 = a lag below the YIN threshold was found; now walking down to its minimum */
+    uint16_t det_cand;          /* that candidate lag */
+    uint16_t det_best_tau;      /* deepest dip so far (fallback when nothing crosses the threshold) */
+    uint16_t bg_age;            /* audio blocks since the last background poll (saturating) */
+    float    det_run;           /* running sum of the difference function (the CMND denominator) */
+    float    det_best_v;
     float    det_hf_ratio;      /* High-frequency vs fundamental energy ratio for palm-mute rejection */
     float    det_rms;           /* Window RMS level */
-    uint32_t det_d[ALPHA_PITCH_TAU_MAX + 2u];
+    float    det_dn[ALPHA_PITCH_TAU_MAX + 2u];   /* cumulative-mean-normalised difference, built lag by lag */
+    int16_t  det_win[ALPHA_PITCH_NEED];          /* snapshot of the window, scaled to |x| <= 1023: the ring keeps moving while the lags run */
 
     /* History & octave/transient rejection state */
     float    hist[3];           /* 3-point median history */
@@ -64,11 +73,12 @@ void alpha_pitch_init(alpha_pitch_t *p);
 void alpha_pitch_reset(alpha_pitch_t *p);
 void alpha_pitch_set_params(alpha_pitch_t *p, float sensitivity_01, float smoothing_01);
 
-/* Fast audio-path sample feeder: filters input, updates onset/release envelope,
- * pushes decimated samples into circular buffer, and runs a small bounded lag slice. */
+/* Fast audio-path sample feeder: filters input, updates onset/release envelope, pushes decimated samples into the ring and,
+ * once per detection, snapshots the window. The lag search itself runs in alpha_pitch_poll_background() (main loop); the audio
+ * path only does it when no poller has run for ALPHA_PITCH_BG_STALE blocks (host tests, a stalled main loop). */
 void alpha_pitch_feed_block(alpha_pitch_t *p, const float *in, int n);
 
-/* Optional background / between-block runner to finish any pending lag slice */
+/* Main-loop runner: evaluates up to ALPHA_PITCH_BG_LAGS lags of the pending detection and marks the background as alive. */
 void alpha_pitch_poll_background(alpha_pitch_t *p);
 
 #endif /* ALPHA_PITCH_H */

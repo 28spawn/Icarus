@@ -82,6 +82,7 @@ HW_TESTS = {
     "HW-17": "USB audio (USB-AUDIO-PLAN.md): enumerates as an audio device next to the MIDI port (usb_enum_check_pc.ps1: MI_00 present, an audio endpoint listed); from step C on: a 10 min PC capture without a gap, sample-rate error measured in ppm; from step D on: a 60 s Android OTG recording without dropouts",
     "HW-18": "BLE-MIDI link, per host (Windows, iPhone, Android; tools/ble_link_trace_pc.py, judged by tools/ble_gate_eval.py): every gated attempt connects and switches notifications on, 0 supervision timeouts, established links heard >= 95 % and valid >= 95 %, advertising again within 10 s of our disconnect",
     "HW-19": "MIDI controller map (MIDI-MAP-CUSTOM.md): PC 0-79, CC 20-27 in the stock module order, CC 64-67 and every other implemented CC / NRPN do what the map says, on a real controller or a DAW",
+    "HW-21": "Project Alpha bring-up, staged, volume at minimum (TEST-PROTOCOL.md 5.1): after EACH stage read the diagnostic dump (tools/perf_monitor_pc.py or the unit's diag readout): audio interrupt longest <= 1.16 ms, overruns 0, no auto-bypass, synth shed 0, SYNTH slot longest <= 600 us, UI ticks smooth, no OVERLOAD popup. Stages: image boots with SYNTH off; SYNTH on in ANALOG mode; OSCILLATOR mode; HYBRID and GUITAR modes; low E, high notes and strummed chords for 2 min each; then 10 min on the heaviest preset with the amp and cabinet on",
     "HW-20": "factory preset levels on the unit: P01-P40 within +-1.5 dB of each other at the output with one reference DI, no clipping, none silent (the emulator check F-16 is not the DAC)",
 }
 
@@ -121,7 +122,8 @@ IMPACT = [
     # Project Alpha is the PA_SLOT_SYNTH block: its DSP, pitch tracker and
     # factory presets reach the audio path, so it needs the same hardware
     # bench coverage as the rest of the chain.
-    ("custom-fw/src/effects/project_alpha/*", "HW-01 HW-02 HW-04 HW-06 HW-10 HW-16"),
+    ("custom-fw/src/effects/project_alpha/*", "HW-01 HW-02 HW-04 HW-06 HW-10 HW-16 HW-21"),
+    ("custom-fw/src/ui/project_alpha_ui.c", "HW-01 HW-02 HW-21"),
     ("custom-fw/src/sys/preset.c",       "HW-01 HW-02 HW-07 HW-15 HW-20"),
     ("custom-fw/src/sys/settings.c",     "HW-01 HW-02 HW-07 HW-15"),
     ("custom-fw/src/sys/pa_user_nam.c",  "HW-01 HW-02 HW-06 HW-10 HW-15"),

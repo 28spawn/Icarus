@@ -184,23 +184,23 @@ typedef struct {
 extern uint16_t g_onyx_greys[3];
 #define ONYX_COL_LINE      (g_onyx_greys[0])  /* #292929 Dividers, tracks, inactive outlines */
 #define ONYX_COL_DIM       (g_onyx_greys[1])  /* #525252 Signal-path lines, disabled outlines */
-#define ONYX_COL_TEXT      0xEF7Du  /* #efefef Values, names */
+#define ONYX_COL_TEXT      0xF7BEu  /* #F5F7F5 Values, names (warm off-white of the laboratory faceplate) */
 #define ONYX_COL_MUTE      (g_onyx_greys[2])  /* #8a8a8a Labels, captions */
-#define ONYX_COL_SELECT    0xF628u  /* #f5c542 Cursor / focus + preset number (Yellow) */
+#define ONYX_COL_SELECT    0xFD60u  /* #FFAE00 Cursor / focus + preset number (laboratory amber) */
 #define ONYX_COL_OK        0x4ECCu  /* #4cd964 In tune, connected (Green) */
 #define ONYX_COL_WARN      0xFE60u  /* #ffcc00 Amber warning */
 #define ONYX_COL_BAD       0xFA27u  /* #ff453a Red warning / clipping / low battery */
 #define ONYX_COL_BLUETOOTH 0x2E16u  /* #2fc2b0 Bluetooth teal */
 
 /* Block Identity Colors (tokens.py BLOCK_COLORS) */
-#define ONYX_COL_DYN       0x4E2Bu  /* #4cc35a Dynamics (Green) */
-#define ONYX_COL_DRIVE     0xF447u  /* #f28a3c Drive (Orange) */
-#define ONYX_COL_AMP       0xE207u  /* #e5413b Amp (Red) */
+#define ONYX_COL_DYN       0x3679u  /* #35CECA Dynamics (cyan) */
+#define ONYX_COL_DRIVE     0xFD60u  /* #FFAE00 SYNTH, slot 1 (amber) */
+#define ONYX_COL_AMP       0xFA60u  /* #FF4D00 Amp (orange) */
 #define ONYX_COL_MOD       0x9BDDu  /* #9a7bff Modulation (Purple) */
 #define ONYX_COL_DLY       0x2E16u  /* #2fc2b0 Delay (Teal) */
 #define ONYX_COL_REV       0x7F19u  /* #7fe0c8 Reverb (Mint) */
-#define ONYX_COL_CAB       0x5B7Eu  /* #5b6cf0 Cabinet (Blue) */
-#define ONYX_COL_EQ        0xF356u  /* #f06bb0 EQ (Pink) */
+#define ONYX_COL_CAB       0xB39Fu  /* #B473FF Cabinet (violet) */
+#define ONYX_COL_EQ        0x5F11u  /* #5CE08A EQ (phosphor green) */
 
 void pa_tuner_init(pa_tuner_state_t *t);
 void pa_tuner_process_block(pa_tuner_state_t *t, int32_t *buf, int n);

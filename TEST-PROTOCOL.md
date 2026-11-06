@@ -370,6 +370,25 @@ then have to recover.
    stop and follow the proven recovery route from section 4. **Don't try random button
    combinations on a unit that's half-flashed.**
 
+
+### 5.1 Staged bring-up of a heavy new block (Project Alpha, and anything like it)
+
+A block whose cost was never measured on the unit must not be switched on in one step: the first Project Alpha build ran its pitch
+search inside the audio interrupt, took twice the block time, and the unit froze 18 s after the synth was enabled. The host suites
+cannot see this (x86 has an FPU, the unit does not), so the stages below are the test.
+
+1. **Flash, synth OFF.** Boot, play the amp for a minute. Read the diagnostic dump: this is the baseline (interrupt longest, overruns, slot times).
+2. **Synth ON, ANALOG mode** (no oscillators, no pitch tracker). Dump. The SYNTH slot should be the smallest of its modes.
+3. **OSCILLATOR mode** (adds the pitch tracker and both oscillators). Dump.
+4. **HYBRID, then GUITAR mode.** Dump after each.
+5. **Play for 2 minutes each:** open low E and A (the slowest notes to track), high notes on the 12th fret and up, fast runs, strummed chords.
+   Dump after each.
+6. **Soak:** 10 minutes on the heaviest preset with the amp and cabinet on.
+
+At every stage the pass limits are those of HW-21. **Stop at the first stage that fails** and send the dump: do not go on to the next mode.
+The firmware also protects itself: if more than 8 of 64 audio blocks run late with the synth on, the synth drops to the dry guitar and the
+OVERLOAD popup shows. Seeing that popup is a FAIL of the stage, not a pass of the protection.
+
 ---
 
 ## 6. Hardware tests
@@ -407,6 +426,7 @@ Use `PASS`, `FAIL` or `N/A`. `N/A` is only allowed where the test says so.
 | **HW-17** | USB audio | Plug into a PC; run `tools/usb_enum_check_pc.ps1`. From step C of `USB-AUDIO-PLAN.md`: record 10 min on the PC (test tone, then the chain output); from step D: record 60 s on an Android phone over OTG | Step A: the audio function `MI_00` present, an audio endpoint listed, MIDI unchanged. Step C: no gap over 10 min, the sample-rate error measured and recorded in ppm, the level equal to the DAC's. Step D: no dropout |
 | **HW-18** | BLE-MIDI link, per host | For each of Windows, iPhone, Android: `tools/ble_link_trace_pc.py` (4 gated attempts on a PC, or `--watch` while you connect by hand); judge the JSON files with `tools/ble_gate_eval.py windows:... iphone:... android:...` | The evaluator prints `HW-18 PASS`: every gated attempt connects and switches notifications on; 0 established links die of a supervision timeout; every established link heard >= 95 % and valid >= 95 %; the link closes and the unit advertises again within 10 s of our disconnect. The failure-to-establish share is reported, not gated |
 | **HW-19** | MIDI controller map | With a real foot controller or a DAW send PC 0, 1, 79; CC 20-27 (the stock module order: FX, AMP, MOD, DLY, REV, CAB, then our DRIVE and EQ); CC 64-67; every further CC or NRPN `MIDI-MAP-CUSTOM.md` lists as implemented | Each does what the map says, once per message; a stock controller's module CCs act on the module they name |
+| **HW-21** | Project Alpha bring-up | Staged, volume at minimum, following 5.1 (synth off, ANALOG, OSCILLATOR, HYBRID/GUITAR, then low notes, high notes and chords, then a 10 min soak on the heaviest preset). Read the diagnostic dump after every stage | At every stage: audio interrupt longest $\le 1.16\text{ ms}$, overruns 0, no auto-bypass, synth shed 0, SYNTH slot longest $\le 600\ \mu s$, no OVERLOAD popup, UI stays smooth. **Required whenever src/effects/project_alpha or the audio interrupt changed** |
 | **HW-20** | Factory preset levels on the unit | Play one reference DI through P01-P40 and measure the output level | All within +-1.5 dB of each other; none silent; none clipping. The emulator check F-16 is not the DAC |
 | **HW-14** | Recovery from this build | Restore stock with the proven route, confirm stock boots, re-flash the candidate | Both directions work. **Required whenever packaging, linker, startup or USB/OTA changed** |
 | **HW-15** | Power loss during save | Pull power mid-save 20 times | Every boot comes up with either the old or the new preset bank, never garbage. **N/A while flash writes are stubbed** |

@@ -529,15 +529,15 @@ for want_on in (True, False):
     check(ok_m, f"BATTERY {'ON' if want_on else 'OFF'}: knob margins (side, top, bottom) {m} are equal within 1 px")
     tap(PARA); tick(10)
 
-print("\n=== moving a block: the grid's banner shows MOVING <block> and nothing that runs off the screen ===")
+print("\n=== moving a block: the header shows MOVE <block> and nothing that runs into the status icons ===")
 to_grid()
 hold(PARA, 3300)
 check(view() == VIEW_MOVING, f"PARA held 2 s entered Moving mode (view {view()})")
 tick(10)
 im = lcd()
-banner_bg = tuple(im[70, 226])
-right = [(x, y) for y in range(68, 84) for x in range(130, 227) if tuple(im[y, x]) != banner_bg]
-check(not right, f"the move banner has no text right of x=130 (instructions removed; {len(right)} stray pixels)")
+hdr_bg = tuple(im[3, 120])
+right = [(x, y) for y in range(8, 20) for x in range(120, 146) if tuple(im[y, x]) != hdr_bg]
+check(not right, f"the MOVE tag in the header ends before x=120 and nothing else is between it and the status icons ({len(right)} stray pixels, e.g. {right[:3]})")
 to_grid()
 
 print("\n=== the tuner page: LIVE passes the guitar, MUTED silences it, the drum machine pauses while it is open ===")
@@ -577,7 +577,7 @@ check(d.emu_get_ui(24) == 0, "drums stopped for the next tests")
 tap(VOL_MINUS | VOL_PLUS); tick(5); tap(VOL_MINUS); tick(5)
 check(view() == VIEW_MAIN_GRID and d.emu_get_ui(24) == 0, "a tuner visit with the drums stopped leaves them stopped")
 
-print("\n=== the preset list: the USB diamond is under the Bluetooth rings with the battery %, in the row without it ===")
+print("\n=== the preset list: the USB diamond sits in the status row, left of the Bluetooth rings, with the battery % on or off ===")
 
 
 def yellow_bbox(im, x0, x1, y0, y1):
@@ -604,14 +604,13 @@ for label in ("first", "second"):
     bb = yellow_bbox(lcd(), 150, 240, 0, 39)
     state_now[label] = bb
     display_row(3)                              # the battery % toggle
-orig_pct_on = state_now["first"] is not None and state_now["first"][2] > 20       # the diamond sat in the second row = the % was ON
-below, row_ = (state_now["first"], state_now["second"]) if orig_pct_on else (state_now["second"], state_now["first"])
-check(below is not None and below[2] >= 22 and 190 <= below[0] and below[1] <= 204, f"battery % ON: the diamond is under the Bluetooth rings (bbox {below})")
-check(row_ is not None and row_[2] >= 9 and row_[3] <= 19 and row_[1] < 190, f"battery % OFF: the diamond is in the row, left of the Bluetooth rings, on the battery's centre line (bbox {row_})")
+for label in ("first", "second"):
+    bb = state_now[label]
+    check(bb is not None and bb[2] >= 9 and bb[3] <= 19 and bb[1] < 190, f"list, battery % {label} state: the diamond is in the row, left of the Bluetooth rings, on the battery's centre line (bbox {bb})")
 # the list's top-right icons with the battery % OFF are pixel-for-pixel where the Settings screen's are (the same row)
 def icon_mask(im):
     bg = tuple(im[2, 150])
-    return {(x, y) for y in range(0, 30) for x in range(150, 240) if tuple(im[y, x]) != bg}
+    return {(x, y) for y in range(0, 24) for x in range(150, 240) if tuple(im[y, x]) != bg}     # above the header's rule (the home header is 26 px tall, the Settings one 30)
 
 
 display_row(2)                                  # GRID -> LIST again
@@ -640,17 +639,17 @@ tick(10)
 
 
 def tag_pixels(row):
-    """pixels of the tag box's right padding (x 192-193, inside the box in stomp mode; empty row background elsewhere) that differ from the row background at x 157"""
+    """pixels of the tag chip (x 206-207, inside the chip in stomp mode; the card's face elsewhere) that differ from the row's face, sampled under the chip"""
     im = lcd()
-    y0 = 46 + row * 38
-    ref = tuple(im[y0 + 10, 157])
-    return sum(1 for yy in range(y0 + 5, y0 + 17) for x in (192, 193) if tuple(im[yy, x]) != ref)
+    y0 = 68 + row * 32
+    ref = tuple(im[y0 + 22, 206])
+    return sum(1 for yy in range(y0 + 4, y0 + 14) for x in (206, 207) if tuple(im[yy, x]) != ref)
 
 
 hold(HOME, 1700); tick(10)
 check(d.emu_get_ui(23) == 1, "STOMP mode on")
 px = [tag_pixels(r) for r in range(5)]
-check(sum(1 for v in px if v >= 20) == 4 and sum(1 for v in px if v == 0) == 1, f"STOMP mode: four rows (the four assigned effects) carry a key tag, the fifth has none ({px} of 24 px per row)")
+check(sum(1 for v in px if v >= 16) == 4 and sum(1 for v in px if v == 0) == 1, f"STOMP mode: four rows (the four assigned effects) carry a key tag, the fifth has none ({px} of 20 px per row)")
 hold(HOME, 1700); tick(10)
 to_grid()
 

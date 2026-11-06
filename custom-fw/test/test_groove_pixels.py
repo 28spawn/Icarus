@@ -129,7 +129,7 @@ check(not diffs, "step 63 (bar 2) renders exactly like step 15 (bar 1) - %d px d
       % len(diffs))
 # and the strip is not blank at step 63 (the old code drew no playhead there)
 stepX = lambda i: 12 + i * 13 + (i // 4) * 4
-lit = [i for i in range(16) if b[133 * 240 + stepX(i)] == 0xF628]
+lit = [i for i in range(16) if b[133 * 240 + stepX(i)] == 0xFD60]
 check(lit == [5], "the strip shows the playhead on block 5 in bar 2 (saw %s)" % (lit,))
 
 print()

@@ -12,8 +12,36 @@ extern void  pa_free(void *);
 
 static alpha_state_t *s_alpha_active = 0;
 
+/* Set by the audio interrupt (audio_alnk.c) when too many blocks in a row of windows ran past their budget while the synth was on:
+ * the synth drops to a dry pass-through so the main loop (UI, USB, Bluetooth) gets its time back instead of the unit freezing.
+ * Latched until the synth is switched off and on again. */
+volatile uint8_t g_pa_synth_shed = 0;
+
 static inline float clampf(float x, float lo, float hi) {
     return (x < lo) ? lo : ((x > hi) ? hi : x);
+}
+
+/* Cheap 2^x and log2(x) for the per-block telemetry (display cutoff, cents): a libm powf/log2f is thousands of cycles in software
+ * float, and these ran every audio block. Accuracy ~1e-4 octave, far finer than the screen shows. */
+static inline float fast_exp2f_a(float x) {
+    if (x < -20.0f) x = -20.0f;
+    if (x >  20.0f) x =  20.0f;
+    const int32_t i = (int32_t)floorf(x);
+    const float   f = x - (float)i;
+    const float   p = 1.0f + f * (0.69314718f + f * (0.24022651f + f * (0.05550411f + f * 0.00961813f)));
+    union { uint32_t u; float f; } sc;
+    sc.u = (uint32_t)((i + 127) << 23);
+    return sc.f * p;
+}
+
+static inline float fast_log2f_a(float x) {
+    if (x < 1.0e-6f) x = 1.0e-6f;
+    union { float f; uint32_t u; } v;
+    v.f = x;
+    const int32_t e = (int32_t)((v.u >> 23) & 0xFFu) - 127;
+    v.u = (v.u & 0x7FFFFFu) | (127u << 23);
+    const float m = v.f - 1.0f;
+    return (float)e + m * (1.44269504f - m * (0.72134752f - m * 0.48089835f));
 }
 
 static inline float db_to_lin(float db) {
@@ -774,6 +802,7 @@ alpha_state_t *alpha_create(void) {
     if (!s) return 0;
     alpha_init(s);
     s_alpha_active = s;
+    g_pa_synth_shed = 0u;                                   /* a fresh synth starts un-shed */
     return s;
 }
 
@@ -789,6 +818,7 @@ alpha_state_t *alpha_get_active(void) {
 
 void alpha_set_active_enable(int enable) {
     if (enable) {
+        g_pa_synth_shed = 0u;
         if (!s_alpha_active) {
             alpha_create();
         } else {
@@ -930,7 +960,11 @@ fx_node_t *fx_synth_new(void) {
 
 void alpha_poll_background(alpha_state_t *s) {
     if (!s || !s->enabled) return;
-    if (s->params.mode == ALPHA_MODE_OSCILLATOR || s->params.mode == ALPHA_MODE_HYBRID) {
+    /* Same condition as need_osc in alpha_process_block_f32: whenever the pitch tracker is fed, its lag search runs HERE (main loop),
+     * not in the audio interrupt. GUITAR mode feeds it too when the oscillator branch is audible. */
+    const uint8_t mode = s->params.mode;
+    if (mode == ALPHA_MODE_OSCILLATOR || mode == ALPHA_MODE_HYBRID ||
+        (mode == ALPHA_MODE_GUITAR && s->params.synth_level > 0.01f)) {
         alpha_pitch_poll_background(&s->pitch);
     }
 }
@@ -947,6 +981,11 @@ void alpha_process_block_f32(alpha_state_t *s, const float *in_mono,
     float adsr_buf[PA_BLOCK_N];
 
     if (n > PA_BLOCK_N) n = PA_BLOCK_N;
+
+    if (g_pa_synth_shed) {                                   /* overload protection: the guitar, dry, on both channels */
+        for (int i = 0; i < n; i++) { out_L[i] = in_mono[i]; out_R[i] = in_mono[i]; }
+        return;
+    }
 
     /* 1. Optional Input Synth Noise Gate */
     if (s->params.gate_enable) {
@@ -1079,16 +1118,16 @@ void alpha_process_block_f32(alpha_state_t *s, const float *in_mono,
         float track_oct = 0.0f;
         float track_f   = (mod.glided_freq_hz > 30.0f) ? mod.glided_freq_hz : s->pitch.frequency;
         if (track_f > 30.0f && s->params.key_tracking > 0.001f) {
-            track_oct = s->params.key_tracking * log2f(track_f / 220.0f);
+            track_oct = s->params.key_tracking * fast_log2f_a(track_f * (1.0f / 220.0f));
         }
         float env_oct = s->params.env_amount * s->live_env_level * 4.0f;
         float tot_oct = clampf(env_oct + track_oct + mod.filter_cutoff_oct, -4.5f, 4.5f);
-        s->live_cutoff_hz = clampf(s->params.cutoff_hz * powf(2.0f, tot_oct), 80.0f, 18000.0f);
+        s->live_cutoff_hz = clampf(s->params.cutoff_hz * fast_exp2f_a(tot_oct), 80.0f, 18000.0f);
     }
 
     /* Compute fine pitch deviation in cents (-50..+50) from nearest MIDI semitone */
     if (s->pitch.valid && s->pitch.frequency > 30.0f && s->pitch.midi_note >= 24u) {
-        float exact_midi = 69.0f + 12.0f * log2f(s->pitch.frequency / 440.0f);
+        float exact_midi = 69.0f + 12.0f * fast_log2f_a(s->pitch.frequency * (1.0f / 440.0f));
         float diff_semi  = exact_midi - (float)s->pitch.midi_note;
         int   cents      = (int)(diff_semi * 100.0f);
         if (cents < -50) cents = -50;
