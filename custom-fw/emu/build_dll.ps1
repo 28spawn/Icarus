@@ -9,13 +9,10 @@ Set-Location $RepoRoot
 
 $BoardDef = if ($Board -eq "blackbox") { "-DBOARD_BLACKBOX=1" } else { "-DBOARD_POCKET_AMP=1" }
 
-$clangExe = Get-Command clang.exe -ErrorAction SilentlyContinue
-if (-not $clangExe) {
-    $clangDir = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\MartinStorsjo.LLVM-MinGW.UCRT*" -Recurse -Filter "clang.exe" | Select-Object -First 1).DirectoryName
-    $env:PATH = "$clangDir;$env:PATH"
-}
+. (Join-Path $PSScriptRoot "find_clang.ps1")
+$null = Find-EmuClang                      # a clang that can really compile the C headers (see find_clang.ps1)
 
-Write-Host "Compiling Pocket Amp Firmware into Native Emulator DLL (pocket_amp_emu.dll)..." -ForegroundColor Cyan
+Write-Host "Compiling Icarus firmware into Native Emulator DLL (icarus_emu.dll)..." -ForegroundColor Cyan
 
 # ---- the source list -------------------------------------------------------
 # Globbed through custom-fw/sources.txt, so a new module can never be
@@ -31,10 +28,10 @@ $sources = @(Get-SourceFiles -Target "emu" -Sections $manifest | ForEach-Object 
 clang -O3 -shared -Wall -Wextra -Icustom-fw/include $BoardDef -DPA_HOST_SIM=1 -DPA_EMU_DLL=1 -DPA_STOCK_FLASH_LOADER=1 `
   custom-fw/emu/emu_bridge.c `
   $sources `
-  -o custom-fw/emu/pocket_amp_emu.dll
+  -o custom-fw/emu/icarus_emu.dll
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "SUCCESS: pocket_amp_emu.dll compiled!" -ForegroundColor Green
+    Write-Host "SUCCESS: icarus_emu.dll compiled!" -ForegroundColor Green
 } else {
-    Write-Error "FAILED to compile pocket_amp_emu.dll"
+    Write-Error "FAILED to compile icarus_emu.dll"
 }
