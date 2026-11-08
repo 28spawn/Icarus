@@ -94,7 +94,7 @@ These run the **firmware's own code** (the same `pa_audio_core`, UI and DSP) on 
 | ID | Test | Covers |
 |---|---|---|
 | F-00 | WASM build (`wasm/build_wasm.py`) | The portable core still builds for the browser |
-| F-01 | `emu/test_icarus_ui.py` | 30 UI flows with snapshots: grid, moving blocks, editors, bank, tuner, groove, save, settings |
+| F-01 | `emu/test_icarus_ui.py` | 30 UI flows with snapshots: grid, moving blocks, editors, bank, tuner, icarus synth, save, settings |
 | F-02 | `emu/test_buttons.py` | Every button and combo maps to one action |
 | F-03 | `emu/test_editor.py` | The block parameter editor |
 | F-04 | `emu/test_input.py` | Debounce, tap vs hold, combos |
@@ -105,7 +105,7 @@ These run the **firmware's own code** (the same `pa_audio_core`, UI and DSP) on 
 | F-09 | `test/test_sysex_read.py` | Editor read commands against the DLL |
 | F-10 | `test/test_ble_midi_emu.py` | BLE-MIDI path into the firmware |
 | F-11 | `test/test_sysex_upload.py` | USB-MIDI upload session |
-| F-12 | `test/test_groove_pixels.py` | Groove Station screen is pixel-identical across bars |
+| F-12 | `emu/test_synth.py` | Icarus Synthesizer parameter sweeps, filter stability, and CRT screen tests |
 | F-13 | `emu/test_block_adapter.py` | Any host frame count: no crackle from partial 64-sample blocks |
 | F-14 | `emu/test_dly_rev.py` | Delay and reverb end to end: echo times equal the screen, stereo, dry level, tails |
 | F-20…F-26 | `wasm/test_*.js` | Jack, chords, NAM runs, NAM level, PARA encoder, preset round-trip, SysEx upload |
@@ -446,10 +446,10 @@ Use `PASS`, `FAIL` or `N/A`. `N/A` is only allowed where the test says so.
 | **HW-06** | Effects and models | With guitar: each block on/off; every amp model; each cab | Audible change when on; bypass level within ±1 dB of dry; no noise bursts when switching |
 | **HW-07** | Presets | Step P01→P80 and back; save a change, reboot | Click-free switching, no crash. Save: persists after reboot **or**, while flash writes are stubbed, shows a clear "save failed" message (no fake "Saved") |
 | **HW-08** | Tuner | 440 Hz and 82.41 Hz reference tones; toggle mute; change the reference to 442 Hz | Reads A4 / E2 within ±2 cents; mute silences the output; reference change shifts the reading |
-| **HW-09** | Groove Station | Start/stop; 40 and 240 BPM (and fractional steps); run a busy style 10 min. Record output and inspect event triggers against sample grid | Starts and stops on command; beat onsets land strictly on calculated crystal sample boundaries ($\Delta t = \frac{44100 \times 60}{\text{BPM} \times 4}$ samples/step); 0 missed or duplicated events; phase jitter < 1 DMA block (< 1.45 ms); 0 ppm cumulative sequencer drift; no crash or audio dropout |
+| **HW-09** | Icarus Synthesizer | Monophonic pitch tracking on single-note guitar lines; test 12 factory presets, filter sweeps, LFO glide, and all 6 CRT submenus | Low-latency pitch tracking with zero crash or NaN lockups; ZDF 4-pole filter stays numerically stable across full resonance range; clean monophonic tracking; smooth preset transitions |
 | **HW-10** | Output safety | Highest-gain amp, input gain max, hot signal (full strum / 0 dBFS sine); switch presets; load a user NAM | Output never exceeds the limiter ceiling; no bursts, no DC thump on power on/off at normal volume |
 | **HW-11** | Display | Look at every screen; step brightness through its range | No garbage, offset or tearing; every brightness step visible; never fully dark |
-| **HW-12** | Soak | 60 min on battery, groove playing and guitar through | No reset; case not hot to the touch; battery gauge moves plausibly |
+| **HW-12** | Soak | 60 min on battery, icarus synth running and guitar through | No reset; case not hot to the touch; battery gauge moves plausibly |
 | **HW-13** | USB MIDI | Plug into a PC; run `tools/usb_enum_check_pc.ps1`; read the build id over the diagnostic channel (`ble_matrix_pc.py --report`); open the editor if it is available; replug 10 times | The script prints PASS (the device node and the MIDI function `MI_03` present, no problem code); the diagnostic channel answers; 10/10 replugs enumerate. **Required whenever the USB descriptors, the driver or the SysEx / MIDI path changed** |
 | **HW-17** | USB audio | Plug into a PC; run `tools/usb_enum_check_pc.ps1`. From step C of `USB-AUDIO-PLAN.md`: record 10 min on the PC (test tone, then the chain output); from step D: record 60 s on an Android phone over OTG | Step A: the audio function `MI_00` present, an audio endpoint listed, MIDI unchanged. Step C: no gap over 10 min, the sample-rate error measured and recorded in ppm, the level equal to the DAC's. Step D: no dropout |
 | **HW-18** | BLE-MIDI link, per host | For each of Windows, iPhone, Android: `tools/ble_link_trace_pc.py` (4 gated attempts on a PC, or `--watch` while you connect by hand); judge the JSON files with `tools/ble_gate_eval.py windows:... iphone:... android:...` | The evaluator prints `HW-18 PASS`: every gated attempt connects and switches notifications on; 0 established links die of a supervision timeout; every established link heard >= 95 % and valid >= 95 %; the link closes and the unit advertises again within 10 s of our disconnect. The failure-to-establish share is reported, not gated |
@@ -532,7 +532,7 @@ detected chip size).
 `custom-fw/emu/test_matrix.py` runs inside `build.ps1` (step 3b) and in the QA gate (F-02b). No image is written unless it passes. It plays a guitar-like signal through
 the real firmware core and, after every gesture, checks that the core is alive, the output is finite and bounded, the screen and preset numbers are valid, the effect memory
 is flat and HOME gets back to the main screen. Sections: M1 every single button (tap and 6 hold lengths, then every second button on the screen it opened), M2 every pair,
-triple and all six together (tap and holds), M3 a depth-3 walk of the screens plus the documented routes (tuner, bank, groove, stomp assign), M4 every synth preset on and off
+triple and all six together (tap and holds), M3 a depth-3 walk of the screens plus the documented routes (tuner, bank, icarus synth, stomp assign), M4 every synth preset on and off
 x < > swaps, encoder, live synth toggle during a swap, M5 a 300-swap storm, M6 a seeded random walk (4000 gestures; `--seed`, `--walk`, `--quick`).
 `build.ps1 -DiagnosticBuild` skips it for bring-up images that are never released.
 

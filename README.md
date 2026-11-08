@@ -41,7 +41,7 @@ Use **Google Chrome or Microsoft Edge** (with native Web MIDI enabled) and a sta
 
 - **Eight reorderable effect slots**: Change signal routing dynamically on the fly (`DYN → DRIVE → AMP → CAB → EQ → MOD → DELAY → REVERB → SYNTH`).
 - **WaveNet Neural Amp Modeling**: Real-time Float32 WaveNet neural inference for NAM A2 captures, running on CPU Core 1 via lock-free SMP handoff.
-- **Icarus Analog Guitar Synthesizer**: Monophonic pitch-tracking analog synthesizer featuring zero-delay feedback (ZDF) resonant ladder filtering, dual band-limited oscillators, sub-octaves, waveshaping, and ADSR envelope followers.
+- **Icarus Analog Guitar Synthesizer**: Strictly monophonic pitch-tracking analog synthesizer featuring zero-delay feedback (ZDF) resonant ladder filtering, dual band-limited oscillators, sub-octaves, waveshaping, and ADSR envelope followers (mono single-note tracking; polyphonic chords are not supported).
 - **Partitioned FIR Cabinet Convolution**: Up to 2048 taps of stereo impulse response processing with hardware vector accelerator offload.
 - **Chromatic Tuner & Live Bank Mode**: YIN-based needle tuner with selectable reference pitch (435–445 Hz) and 4-slot live performance banks.
 - **Bluetooth LE MIDI**: Wireless parameter control and footswitch integration (e.g. Chocolate Plus) via the integrated open Optimist BLE stack.
@@ -69,6 +69,10 @@ The default signal order is `DYN → SYNTH → AMP → CAB → EQ`. Any block ca
 
 The built-in guitar synthesizer (`PA_SLOT_SYNTH`) transforms electric guitar input into vintage analog synth textures with dedicated interactive laboratory submenus:
 
+> [!IMPORTANT]
+> **Monophonic (Mono) Only — Not Polyphonic**
+> The Icarus Synthesizer is designed exclusively for **single-note lead lines, riffs, and basslines**. Pitch tracking utilizes an ultra-low-latency YIN fundamental pitch follower tuned for clean monophonic tracking. **It is not polyphonic** — playing chords or multiple simultaneous strings will produce tracking artifacts. For the cleanest tracking, play single notes with a firm pick attack.
+
 <p align="center">
   <img src="docs/images/synth_01_mode.png" width="31%" alt="Mode & Analog Waveshaping" />
   <img src="docs/images/synth_02_oscillators.png" width="31%" alt="Dual Oscillators & Sub" />
@@ -87,7 +91,7 @@ The built-in guitar synthesizer (`PA_SLOT_SYNTH`) transforms electric guitar inp
 - **Modulation & Glide (`MOD`)**: Multi-waveform LFO (Sine, Triangle, Square, Saw, Sample & Hold) and exponential portamento pitch glide curves.
 - **Studio Mixer & Spread (`MIX`)**: 3-channel level control (Dry Guitar, Analog Preamp, Synth Core) with stereo field widening.
 - **Pitch Following**: Fast YIN-derived fundamental pitch tracking with hysteresis gate and onset transient detector (`custom-fw/src/effects/icarus/icarus_pitch.c`).
-- **12 Factory Presets**: Instant access to classic leads, bass synths, filter sweeps, and ambient poly-waveshaper textures.
+- **12 Factory Presets**: Instant access to classic leads, bass synths, filter sweeps, and ambient monophonic waveshaper textures.
 
 ---
 

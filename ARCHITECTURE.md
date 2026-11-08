@@ -1,6 +1,6 @@
-# Pocket Amp Custom Firmware — Architecture
+# Icarus Firmware & DSP Architecture
 
-Complete module map for the **M-VAVE / Donner Pocket Amp** custom firmware, targeting the
+Complete module map and operating system architecture for the **Icarus** custom firmware on the **M-VAVE / Donner Pocket Amp**,
 **JieLi AC791N (pi32v2, 360 MHz assumed - see `PA_CPU_HZ`)** SoC.
 
 Source of truth: `custom-fw/`. All paths below are relative to the repository root.
@@ -43,8 +43,8 @@ only `src/board/*` does.
 ┌───────────────┐        ┌──────────────────┐        ┌──────────────────┐
 │   src/fx      │        │    src/nam       │        │    src/dsp       │
 │ 8-slot chain  │◄──────►│ GRU + WaveNet    │◄──────►│ LUT / accel /    │
-│ fx_graph.c    │        │                  │        │ tuner / drums    │
-│ + 7 effects   │        │                  │        │                  │
+│ fx_graph.c    │        │ (Core 1 offload) │        │ tuner / filters  │
+│ + Icarus synth│        │                  │        │ (drums stubbed)  │
 └───────┬───────┘        └──────────────────┘        └──────────────────┘
         │ pa_fx_chain_t
         ▼
@@ -77,7 +77,7 @@ only `src/board/*` does.
 
 | Context | Entry | Rate | Members |
 |---|---|---|---|
-| **Audio ISR** | `isr_alnk0` (`entry.S`) → `pa_alnk0_isr_c` → `pa_audio_process_half` → `pa_audio_process_block_stereo` | 44 118 Hz (64-frame DMA) | ALNK0, Core 0 chain stages, drums, USB mix |
+| **Audio ISR** | `isr_alnk0` (`entry.S`) → `pa_alnk0_isr_c` → `pa_audio_process_half` → `pa_audio_process_block_stereo` | 44 118 Hz (64-frame DMA) | ALNK0, Core 0 chain stages, Icarus analog synth, tuner, USB mix |
 | **UI thread** | `pa_main_loop` → `pa_firmware_tick` | 60 Hz (16 ms) | UI, presets, settings, flash, SysEx, GC |
 | **Poll loop** | `pa_main_loop` | 1 kHz | `pa_gpio_scan_poll_1khz()` (buttons, encoder debouncing) |
 | **CPU1** | `pa_c1_start` / `cpu1.c` (`smp_cpu1.c`) | Per block (~1.45 ms) | Amp / WaveNet neural inference offload (~1,370 µs per 64-sample block) + lock-free handoff |
@@ -99,7 +99,7 @@ only `src/board/*` does.
 | `pa_wavenet.h` | `pa_wavenet_model_t`, voicing profile, 23-layer dilated structure |
 | `pa_wavenet_fast.h` | Fast/ASM WaveNet execution definitions for real-time Core 1 processing |
 | `pa_biquad.h` | Assembly-accelerated biquad kernel structures (DF2T) |
-| `pa_ui.h` | `pa_ui_ctx_t`, `pa_ui_view_t` (15 views), button bitmasks, Onyx palette |
+| `pa_ui.h` | `pa_ui_ctx_t`, `pa_ui_view_t` (15 views), button bitmasks, Icarus Vintage Analog palette (`ICARUS_COL_*`) |
 | `pa_preset.h` | `pa_preset_t` (164 B), Q16↔Q21 helpers, genre tags |
 | `pa_settings.h` | `pa_settings_t` (60 B) |
 | `pa_user_nam.h` | `pa_user_nam_slot_t`, `pa_user_nam_meta_t` (custom NAM capture storage) |
@@ -118,13 +118,14 @@ only `src/board/*` does.
 | `pa_ble_radio.h` | BLE baseband / RF radio registers and timing |
 | `pa_ble_midi_bridge.h` | BLE MIDI service, packet framing, and footswitch bridging |
 | `pa_sysex.h` | `pa_sysex_parser_t`, `pa_upload_session_t` |
-| `pa_protocol.h` | Verified stock V105 & Onyx protocol map: PC 0..79, CC 20..25, CC 64..67, SysEx opcodes |
-| `pa_drums.h` | `pa_drums_t`, 49 groove styles, 12 lanes + a click voice, 48 steps to a 4/4 bar, `pa_drums_bar_block()` |
+| `pa_protocol.h` | Verified stock V105 & Icarus protocol map: PC 0..79, CC 20..25, CC 64..67, CC 102..118, SysEx opcodes |
+| `pa_drums.h` | `pa_drums_t`, zero-overhead inline stubs (`pa_drums_init`, `pa_drums_mix_block`); drum machine retired to conserve RAM/CPU |
 | `pa_cpu_meter.h` | `pa_cpu_meter_t`, `enum pa_stage` (8 stages) |
 | `pa_smp.h` | `pa_smp_mailbox_t`, CPU1 register macros and inter-core synchronization |
 | `pa_debug_log.h` | Debug logging macros |
 | `pa_ota_session.h` | OTA firmware upgrade session management |
-| `onyx_block_icons.h` | 281-line palette-indexed 28×28 block icon table |
+| `icarus_ui.h` | Icarus Laboratory UI state, palette constants (`ICARUS_COL_*`), CRT visualizer prototypes |
+| `icarus.h` | `icarus_state_t`, 12 factory presets, monophonic synth node interface |
 
 ### 2.2 `src/dsp/` — fixed-point primitives (5 files)
 
@@ -168,6 +169,27 @@ only `node->state` is pool-allocated.
 `run_global_gate`, `apply_fizz_filter_block`, `apply_output_limiter_stereo`.
 Static tables: `k_fizz_coef[3][2][5]`, `k_db_q21_m12_p12[25]`.
 Shared scratch: `s_dry_L[64]`, `s_dry_R[64]` (one node fades at a time).
+
+
+### 2.4b `src/effects/icarus/` — Icarus Analog Guitar Synthesizer (9 files)
+
+The built-in guitar synthesizer (`PA_SLOT_SYNTH` / Slot 1) transforms electric guitar input into vintage analog synth textures:
+
+> [!IMPORTANT]
+> **Strictly Monophonic (Mono) — Not Polyphonic**:
+> Pitch tracking is designed and tuned exclusively for **single-note guitar playing** (lead solos, riffs, basslines). The YIN pitch follower tracks the fundamental frequency ($f_0$) of a single vibrating string; chords or multi-string intervals will produce conflicting autocorrelation peaks.
+
+| Module | Purpose & Algorithms | Key Functions | Memory / Math |
+|---|---|---|---|
+| `icarus.c` | Top-level synth effect node, 12 factory presets, parameter smoothing, audio process dispatch | `icarus_new`, `icarus_process_block`, `icarus_load_preset` | Node state in DSP pool |
+| `icarus_pitch.c` | Fast YIN fundamental pitch tracker with hysteresis gate and transient onset detector | `icarus_pitch_init`, `icarus_pitch_track` | Single-note autocorrelation buffer |
+| `icarus_osc.c` | Dual morphing band-limited PolyBLEP oscillators (saw, PWM square, triangle) + sub-octaves | `icarus_osc_init`, `icarus_osc_render` | Anti-aliased PolyBLEP |
+| `icarus_filter.c` | 4-pole 24 dB/oct zero-delay feedback (ZDF) resonant ladder filter with non-linear saturation | `icarus_filter_init`, `icarus_filter_process` | ZDF topology, Padé `tanh` |
+| `icarus_env.c` | 4-stage vector ADSR envelope follower and dynamic amplitude follower | `icarus_env_init`, `icarus_env_process` | Linear/exponential stages |
+| `icarus_lfo.c` | Multi-waveform LFO (Sine, Triangle, Square, Saw, S&H) + exponential portamento glide curve | `icarus_lfo_init`, `icarus_lfo_step` | Phase accumulator, glide filter |
+| `icarus_analog.c` | Analog input overdrive and waveshaper (Tube, Fuzz, Rectifier, Foldback) | `icarus_analog_process` | Polynomial/transcendental shaper |
+| `icarus_mix.c` | 3-way mixer (Dry Guitar, Analog Preamp, Synth Core) with stereo widening | `icarus_mix_process` | Mid/Side stereo spread |
+| `src/ui/icarus_ui.c` | Laboratory CRT front panel with 6 interactive real-time visualizer submenus | `icarus_ui_render`, `icarus_ui_handle_inputs` | Direct framebuffer blits |
 
 ### 2.5 `src/sys/` — system services (14 files)
 
@@ -326,7 +348,7 @@ isr_alnk0  (entry.S: save psr/rets/reti, r3-r0)
             ├─ g_pa_audio.bypass ? memcpy : g_audio_cb(...)
             │    └─ pa_audio_process_block_stereo(buf_L, buf_R, n)   [main.c]
             │         1. pa_tuner_process_block(&g_ui.tuner, buf_L, n)
-            │            └─ if mute_output: zero, pa_drums_mix_block, L→R, RETURN
+            │            └─ if mute_output: zero, L→R, RETURN
             │         2. cpu_meter_begin
             │            └─ pa_fx_chain_run_stereo(&g_fx_chain, L, R, n)  [fx_graph.c]
             │                 ├─ DC blocker (15 Hz, in_dc_x1/y1)
@@ -344,7 +366,7 @@ isr_alnk0  (entry.S: save psr/rets/reti, r3-r0)
             │                 └─ apply_output_limiter_stereo()  [OFF/SOFT/BRICKWALL]
             │            └─ xf_apply()   [if crossfade in progress]
             │         3. cpu_meter_begin
-            │            ├─ pa_drums_mix_block(&g_drums, drum_tmp, n)
+            │            ├─ [Drums stubbed, zero-overhead]
             │            ├─ pa_usb_audio_mix_playback_stereo(&g_usb_ble, L, R, n)
             │            ├─ pa_usb_audio_push_capture_stereo(&g_usb_ble, L, R, n)
             │            └─ pa_soft_ceiling_q21()  (knee 0.891, 4:1 above)
@@ -355,7 +377,7 @@ isr_alnk0  (entry.S: save psr/rets/reti, r3-r0)
 ```
 
 **Default chain order** (`fx_graph.c`, `pa_fx_chain_init`):
-`DYN(0) → DRIVE(1) → AMP(2) → CAB(3) → EQ(4) → MOD(5) → DELAY(6) → REVERB(7)`
+`DYN(0) → SYNTH(1) → AMP(2) → CAB(3) → EQ(4)` (MOD/DELAY/REVERB retired to fund Synth & NAM)
 
 ### 4.3 UI tick (60 Hz)
 
@@ -370,12 +392,12 @@ pa_firmware_tick(buttons, enc_delta, adc_pots)              [main.c]
   ├─ pa_ui_handle_inputs(&g_ui, &g_fx_chain, ...)            [ui_app.c]
   │    ├─ master pot → pa_ui_apply_io_settings()
   │    ├─ auto-dim wake check
-  │    ├─ global combos (TUNER / BANK / DRUMS)
+  │    ├─ global combos (TUNER: VOL-/VOL+, BANK: </>, SYNTH: HOME/VOL+)
   │    ├─ per-view input cascade (15 views)
   │    │    └─ ui_select_model()  [mute handshake → asset load → release_mute]
   │    └─ pa_ui_load_preset()  [preset load + apply_smooth]
   ├─ pa_fx_chain_collect_garbage(&g_fx_chain)               [frees ISR-flagged nodes]
-  ├─ pa_drums_set_bpm/style/level/click/playing()
+  ├─ [pa_drums stubs: zero-overhead]
   ├─ auto-dim after {0, 30 s, 60 s, 300 s}
   ├─ pa_settings_save()  [2 s debounce, brownout-guarded]   [settings.c]
   ├─ g_ui.sram_used_bytes = pa_pool_used_bytes()             [pa_pool.c]
@@ -469,7 +491,7 @@ Guitar IN jack
        → [EQ]  5-band biquad stack
        → [MOD/DLY/REV] true stereo
        → preset volume smoothing → speaker "air" → output limiter
-  → [DRUMS] pa_drums_mix_block (mono → L+R)
+  → [SYNTH] Icarus Monophonic Analog Synthesizer (Slot 1)
   → [USB]   pa_usb_audio_mix_playback_stereo + push_capture_stereo
   → pa_soft_ceiling_q21 (soft knee, −1 dBFS)
   → master volume slew → TPDF dither → 24-bit
@@ -535,7 +557,7 @@ Physical buttons (PH6/PH8/PH9/PA0/PA1/PA3) + PARA encoder (PC0/PC1)
 | 9 | `PA_BTN_PARA_HOLD3` | PARA hold 3 s → unused (the factory reset is a click in Settings > System) |
 
 Combos: `PA_COMBO_TUNER` (VOL−+VOL+), `PA_COMBO_BANK` (<+>),
-`PA_COMBO_DRUMS` (HOME+VOL−), `PA_COMBO_CHAIN` (HOME+VOL+, declared but unused).
+`PA_COMBO_CHAIN` (HOME+VOL+: Icarus Synthesizer Laboratory shortcut), `PA_COMBO_DRUMS` (HOME+VOL-: retired/unmapped).
 
 ### 5.3 Persistence path
 
@@ -758,14 +780,14 @@ Key fields: `head`, `slots[8]`, `slot_order[8]`, `input_gain_q21`, `preset_vol_q
 | `g_active_amp_engine` | `main.c` | `int` | 0 = GRU, 1 = WaveNet |
 | `g_ui` | `main.c` | `pa_ui_ctx_t` | Read by the ISR (`g_ui.tuner.active`) |
 | `g_usb_ble` | `main.c` | `pa_usb_ble_ctx_t` | |
-| `g_drums` | `main.c` | `pa_drums_t` | |
+| `g_drums` | `main.c` | `pa_drums_t` | Retired stub (zero overhead) |
 | `g_cpu_meter` | `main.c` | `pa_cpu_meter_t` | Written by the ISR |
 | `g_settings` | `main.c` | `pa_settings_t` | Live settings mirror |
 | `g_amp_live` / `g_amp_next` | `main.c` | `amp_coeffs_t` | ISR / UI halves of the seqlock |
 | `g_amp_next_seq` / `g_amp_live_seq` | `main.c` | `volatile u32` | Seqlock counters |
 | `g_xf_state` / `g_xf_gain` | `main.c` | `volatile u8` / `i32` | Mute handshake |
 | `g_pa_audio` | `audio_alnk.c` | `pa_audio_state_t` | Public (declared in `pa_audio.h`) |
-| `g_onyx_greys[3]` | `ui_app.c` | `u16[3]` | Runtime theme palette |
+| `ICARUS_COL_*` | `icarus_ui.h` | constants | Vintage Analog Laboratory RGB565 palette |
 | `g_presets[80]` | `preset.c` | `pa_preset_t[80]` | 13 120 B |
 | `g_dsp_pool[147 456]` | `pa_pool.c` | `u8[]` | `.pool` section |
 | `g_nam_registry` | `pa_user_nam.c` | registry | 20 user NAM slots |
@@ -850,8 +872,8 @@ folded in instead, so the timers keep running.
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/`, `/index*` | `ui.html` |
-| GET | `/onyx/<name>.png` | Static Onyx screen renders |
-| GET | `/api/onyx_screens` | Screen list |
+| GET | `/icarus/<name>.png` | Static Icarus screen renders |
+| GET | `/api/icarus_screens` | Screen list |
 | GET | `/api/devices` | PortAudio device list |
 | GET | `/api/stock_assets` | Amp / cab names |
 | GET | `/api/state` | Full poll payload (LCD base64, telemetry, scope, slot state) |

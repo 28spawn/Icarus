@@ -31,7 +31,7 @@ the primary application codebase without an explicit secondary license, is GPL-3
 - **Icarus Guitar Synthesizer**: `custom-fw/src/effects/icarus/` (analog oscillator models, zero-delay feedback resonant filter, pitch follower, envelope generator).
 - **DSP and neural amp modeler**: `custom-fw/src/dsp/` (hardware accelerator SIMD bridge, tuner, fixed-point math) and `custom-fw/src/nam/` (float32 WaveNet neural inference for NAM A2 models, GRU legacy path).
 - **Effect chain**: `custom-fw/src/fx/` (dynamics, overdrive, EQ, modulation, delay, reverb, partitioned FIR cabinet convolution).
-- **Groove Station drum machine**: `custom-fw/src/dsp/drums_synth.c`, `custom-fw/src/dsp/drum_codec.h`, authored rhythm patterns in `drum_patterns.inc`, and procedural voice models in `drum_kit.inc`.
+- **Retired Drum Engine**: Legacy procedural drum machine files and rhythm pattern grids were retired in Icarus v0.1.0 to prioritize SRAM and real-time CPU cycles for the Icarus Synthesizer and WaveNet neural modeling.
 - **Build and packaging tools**: `custom-fw/build.ps1`, `custom-fw/tools/` (`onyx_pkg_make.py`, `lz4blk.py`, `pack_ufw.py`, `qa_gate.py`, etc.).
 - **Desktop emulator and workbench**: `custom-fw/emu/` (PortAudio ASIO bridge, `pocket_amp_emu.dll`, web frontend) and `custom-fw/wasm/`.
 - **Host verification and regression test suites**: `custom-fw/test/` (DSP chain, YIN tuner, WaveNet cycle benchmark, memory reclaim, fault injection, robustness).
@@ -91,8 +91,7 @@ To respect third-party intellectual property and avoid distributing vendor propr
 
 ## Audio assets and sample provenance
 
-- **Procedural Groove Station drum kit**: The 12 drum voices (`kick`, `snare`, `rim`, `hats`, `ride`, `crash`, `toms`, `click`) in `src/dsp/drum_kit.inc` are **100% synthetically generated** by `custom-fw/tools/gen_drum_kit.py` using algorithmic oscillators, exponential envelopes, and filtered noise curves. Kick and tom drums are dynamically re-synthesized on-chip; other sounds are stored as 4-bit IMA-ADPCM, G.711 mu-law, or 16-bit PCM. No audio recordings were sampled from commercial hardware.
-- **Rhythm pattern library**: 49 original drum patterns authored as 48-step grids in `src/dsp/drum_patterns.inc`.
+- **Retired Drum Engine & Procedural Kit**: Legacy synthesized drum voice models and pattern tables were retired in Icarus v0.1.0 to fit hardware RAM/CPU capacity for the Icarus monophonic analog synthesizer and Core 1 WaveNet neural models.
 - **Dry guitar DI captures**: 15 clean direct-input (DI) guitar performance captures (`jonas_chords_1..5.wav`, `jonas_lick_1..5.wav`, `jonas_riff_1..5.wav`) in `custom-fw/emu/samples/` provided courtesy of **Jonas Hemmersbach** for tone-stack auditioning, neural model verification, and emulator playback.
 - **Default synthetic cabinet IR**: Generated cleanly by mathematical modeling of speaker low/high roll-off and resonance curves.
 

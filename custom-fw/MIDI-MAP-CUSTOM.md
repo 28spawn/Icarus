@@ -64,7 +64,7 @@ Value rule for every toggle and button: **value >= 64 acts, value < 64 is ignore
 | **7** | Preset volume, 0..127 -> 0..100 % (same range as the VOL bar) | N F | standard "channel volume" number |
 | **80** / **81** | Next / previous preset | N F | wraps within P01..P80 |
 | **85** | Tuner on / off | N F | |
-| **86** | Groove Station play / stop | N F | |
+| **86** | Legacy Groove play/stop (Retired in Icarus) | - | Unmapped |
 | **87** | Play mode: >= 64 STOMP, < 64 PRESET | N F | |
 | **88** | Save current preset | N F | >= 64 saves in current slot |
 | **102..118** | Direct knobs, 0..127 -> 0..100 % (table below) | N F | |
