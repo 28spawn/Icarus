@@ -101,6 +101,16 @@ _start:
 isr_alnk0:
     [--sp] = {psr, rets, reti}
     [--sp] = {r3-r0}
+    /* Keep the interrupted frame where the freeze detector (audio_alnk.c) can read it: reti = the PC the CPU was on, rets, psr. After the two pushes
+     * reti sits at [sp+16] (the register lists put the LAST name at the lowest address), rets at [sp+20], psr at [sp+24]; all three are stored so the
+     * readout can tell which is a code address. r0 and r1 are free here: they were just saved. */
+    r0 = [sp+16]
+    r1 = 0x01C7C900
+    [r1+4] = r0
+    r0 = [sp+20]
+    [r1+8] = r0
+    r0 = [sp+24]
+    [r1+12] = r0
     call pa_alnk0_isr_c
     {r3-r0} = [sp++]
     {psr, rets, reti} = [sp++]
@@ -118,6 +128,17 @@ isr_alnk0:
 isr_timer5:
     [--sp] = {psr, rets, reti}
     [--sp] = {r3-r0}
+    r1 = 0x01C7C9C0                    /* where the CPU was at the LAST timer interrupt: [1] reti, [2] rets, [0] a count (this interrupt is independent of the audio one) */
+    r0 = [sp+16]
+    [r1+4] = r0
+    r0 = [sp+20]
+    [r1+8] = r0
+    r0 = [r1+0]
+    r0 += 1
+    [r1+0] = r0
+    r2 = 0x00010804                    /* TIMER4 (24 MHz counter): when the last timer interrupt happened */
+    r0 = [r2+0]
+    [r1+12] = r0
     call pa_timer5_isr_c
     {r3-r0} = [sp++]
     {psr, rets, reti} = [sp++]

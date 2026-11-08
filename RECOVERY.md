@@ -1,8 +1,8 @@
 # Pocket Amp recovery runbook
 
 How to back up, restore and un-brick a Pocket Amp over USB, with no soldering. Proven on
-unit 1 (serial `4150353835313708`) on 2026-10-30. For what went wrong along the way, see
-[LESSONS-LEARNED.md](LESSONS-LEARNED.md).
+unit 1 on 2026-10-30. For test validation history, see
+[TEST-PROTOCOL.md](TEST-PROTOCOL.md).
 
 ## Status
 

@@ -29,6 +29,8 @@ typedef struct fx_node {
     volatile uint8_t stereo_on;
 } fx_node_t;
 
+#define NODE_SHOWN_ON(nd) ((nd) && (nd)->active && (nd)->fade_dir >= 0)
+
 /* The stereo load governor (audio_alnk.c) clears this when the audio interrupt runs too long: optional-stereo nodes then run mono. */
 extern volatile uint8_t g_pa_stereo_allow;
 /* Set by the cabinet in a block where it produced two different channels, cleared at the top of every chain run. */

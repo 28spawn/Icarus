@@ -50,7 +50,8 @@ enum {
     PA_MEV_GLOBAL,         /* a = GLOBAL parameter (MIDI-MAP-CUSTOM.md section 6), v = the raw number D */
     PA_MEV_GROOVE,         /* a = GROOVE parameter, v = D */
     PA_MEV_PRESET_PARAM,   /* a = PRESET parameter, v = D */
-    PA_MEV_SAVE            /* a = 0 save the current preset where it is, 1 save it to slot v (0..79) */
+    PA_MEV_SAVE,           /* a = 0 save the current preset where it is, 1 save it to slot v (0..79) */
+    PA_MEV_SYNTH_PARAM     /* a = Icarus Synthesizer parameter index (0..45, corresponding to NRPN par 0x10..0x3D), v = D */
 };
 typedef struct { uint8_t kind; uint8_t a; uint8_t b; uint8_t pad; uint16_t v; } pa_midi_ev_t;
 #define PA_MIDI_EV_N 32u

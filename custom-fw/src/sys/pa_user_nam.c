@@ -450,7 +450,8 @@ int pa_user_nam_set_name(uint8_t user_idx, const char *name) {
 /* Scratch for reading a NAM blob out of flash. .pool, not .bss - see the note in sysex.c. The RAM copy is PA_NAM_BLOB_MAX; a flash slot is PA_FLASH_USER_NAM_SLOT_SIZE (8 KB).
  * The update session (ota_hw.c) borrows it: it is idle while the main loop is inside the session. */
 static uint8_t s_model_blob_buf[PA_NAM_BLOB_MAX] __attribute__((section(".pool"), aligned(4)));
-uint8_t *pa_user_nam_scratch(uint32_t *n) { *n = (uint32_t)sizeof s_model_blob_buf; return s_model_blob_buf; }
+static uint8_t s_pf_nam = 0xFFu;              /* the user capture whose blob (CRC-checked) sits in s_model_blob_buf, read by the MAIN LOOP before a swap */
+uint8_t *pa_user_nam_scratch(uint32_t *n) { s_pf_nam = 0xFFu; *n = (uint32_t)sizeof s_model_blob_buf; return s_model_blob_buf; }
 
 int pa_user_nam_delete(uint8_t user_idx) {
     if (!g_nam_registry_inited) pa_user_nam_init();
@@ -475,6 +476,27 @@ void pa_user_nam_rollback(uint8_t user_idx) {
     }
 }
 
+/* Read a capture's blob into the scratch from the main loop. A swap applies in the audio interrupt, where flash I/O is refused (spi_nor.c): without this the capture "did not load"
+ * and the amp fell back to stock model 0. pa_user_nam_load_into_dsp below then skips the read when the blob is already here. */
+void pa_user_nam_prefetch(uint8_t user_idx) {
+    if (!g_nam_registry_inited) pa_user_nam_init();
+    if (s_pf_nam == user_idx) return;
+    s_pf_nam = 0xFFu;
+    if (user_idx >= g_nam_registry.count || !g_nam_registry.slots[user_idx].active) return;
+    const pa_user_nam_slot_t *slot = &g_nam_registry.slots[user_idx];
+    if (slot->blob_len == 0u || slot->blob_len > PA_NAM_BLOB_MAX) return;
+    if (slot->flags & NAM_FLAG_EMBEDDED) {
+        const pa_emb_nam_t *e = pa_emb_nam_get(slot->blob_slot);
+        if (!e || e->blob_len != slot->blob_len) return;
+        pa_xip_read(s_model_blob_buf, e->blob, slot->blob_len);
+    } else {
+        if (slot->blob_slot >= PA_FLASH_USER_NAM_BLOB_SLOTS) return;
+        if (pa_spi_nor_read(pa_flash_nam_slot_addr(slot->blob_slot), s_model_blob_buf, slot->blob_len) != 0) return;
+    }
+    if (slot->blob_crc32 != 0u && pa_crc32(s_model_blob_buf, slot->blob_len) != slot->blob_crc32) return;
+    s_pf_nam = user_idx;
+}
+
 int pa_user_nam_load_into_dsp(uint8_t user_idx, pa_nam_model_t *gru_model, pa_wavenet_model_t *wn_model) {
     if (!g_nam_registry_inited) pa_user_nam_init();
     if (user_idx >= g_nam_registry.count || !g_nam_registry.slots[user_idx].active) return -1;
@@ -495,14 +517,16 @@ int pa_user_nam_load_into_dsp(uint8_t user_idx, pa_nam_model_t *gru_model, pa_wa
      * buffer (the limit used to be the 64 KB flash stride). Refuse it instead
      * of reading past the end. */
     if (slot->blob_len == 0u || slot->blob_len > PA_NAM_BLOB_MAX) return -4;
-    if (slot->flags & NAM_FLAG_EMBEDDED) {
+    const int prefetched = (s_pf_nam == user_idx);                  /* the main loop already read it and checked its CRC */
+    if (prefetched) {
+    } else if (slot->flags & NAM_FLAG_EMBEDDED) {
         const pa_emb_nam_t *e = pa_emb_nam_get(slot->blob_slot);
         if (!e || e->blob_len != slot->blob_len) return -2;
         pa_xip_read(s_model_blob_buf, e->blob, slot->blob_len);
     } else if (pa_spi_nor_read(slot_addr, s_model_blob_buf, slot->blob_len) != 0) return -2;
 
     /* Verify blob CRC32 if registered */
-    if (slot->blob_crc32 != 0u) {
+    if (!prefetched && slot->blob_crc32 != 0u) {
         uint32_t c = pa_crc32(s_model_blob_buf, slot->blob_len);
         if (c != slot->blob_crc32) return -4; /* Corrupt model blob */
     }

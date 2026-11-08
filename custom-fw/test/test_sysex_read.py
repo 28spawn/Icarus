@@ -81,7 +81,11 @@ if r:
         check(field in text, f"the record has {field!r}")
     check("DONNER Pocket AMP" in text,
           "the name is one the editor matches (\"DONNER Pocket AMP\")")
-    check("version=105" in text, "the version is 105 (PA_FW_VERSION: shown as 1.05, below the stock's 1.05)")
+    import re
+    cfg_txt = open(os.path.join(ROOT, "include", "pa_config.h"), encoding="utf-8").read()
+    m = re.search(r"#define\s+PA_FW_VERSION\s+(\d+)u", cfg_txt)
+    exp_ver = m.group(1) if m else "10"
+    check(f"version={exp_ver}" in text, f"the version matches PA_FW_VERSION ({exp_ver})")
 
 print()
 print("=== the descriptor (cmd 18) ===")

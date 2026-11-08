@@ -178,6 +178,11 @@ extern void pa_audio_core_flash_begin(void);
 extern void pa_audio_core_flash_end(void);
 extern void plat_wdt_feed(void);
 
+#include "../../include/pa_plat.h"
+extern volatile uint32_t g_pa_alnk_in;                 /* audio_alnk.c: 1 while the audio interrupt handler runs */
+/* No flash I/O from the audio interrupt: the quiesce waits for audio interrupts that cannot run inside one, masks the interrupts, and a long operation there
+ * (a swap read the factory amp in it: ~190 ms) starves the audio. Callers there get -6; a swap's flash data is prefetched by the main loop (stock_assets.c). */
+#define PA_NO_FLASH_IN_ISR() do { if (g_pa_alnk_in) { PA_FLCP(0xEE); return -6; } } while (0)
 static int s_batch;
 void pa_spi_nor_begin(void) { if (s_batch++ == 0) pa_audio_core_flash_begin(); }
 void pa_spi_nor_end(void)   { if (s_batch > 0 && --s_batch == 0) pa_audio_core_flash_end(); }
@@ -194,16 +199,21 @@ int pa_spi_nor_erase_sector(uint32_t flash_addr) {
     int rc;
     if (!pa_flash_rw_ok(a, PA_FLASH_SECTOR_SIZE)) return -3;   /* bootloader/app/calibration/factory bundle protected */
     if (plat_battery_is_brownout()) return -5;    /* Brownout lock: battery voltage critical */
+    PA_NO_FLASH_IN_ISR();
     pa_flash_dev_init();
+    PA_FLADDR(a); PA_FLCP(0xA0);
     pa_spi_nor_begin();
     plat_wdt_feed();
     rc = pa_flash_dev_op(1u, a, 0, 0u, 0);
+    PA_FLCP(0xA1);
     for (uint32_t o = 0; rc == 0 && o < PA_FLASH_SECTOR_SIZE; o += sizeof b) {       /* read it back: blank? */
         if (pa_flash_dev_op(0u, a + o, b, (uint32_t)sizeof b, 0) != 0) { rc = -4; break; }
         for (uint32_t i = 0; i < sizeof b; i++) if (b[i] != 0xFFu) { rc = -4; break; }
     }
     plat_wdt_feed();
+    PA_FLCP(0xA2);
     pa_spi_nor_end();
+    PA_FLCP(0xA3);
     return rc ? -4 : 0;
 }
 
@@ -215,7 +225,9 @@ int pa_spi_nor_write(uint32_t flash_addr, const void *data, uint32_t len) {
     if (!data) return -1;
     if (!pa_flash_rw_ok(flash_addr, len)) return -3;   /* bootloader/app/calibration/factory bundle protected, or a write that leaves its window */
     if (plat_battery_is_brownout()) return -5;    /* Brownout lock: battery voltage critical */
+    PA_NO_FLASH_IN_ISR();
     pa_flash_dev_init();
+    PA_FLADDR(flash_addr); PA_FLCP(0xC0);
     pa_spi_nor_begin();
     while (len && rc == 0) {
         uint32_t chunk = 256u - (flash_addr & 0xFFu);
@@ -224,10 +236,13 @@ int pa_spi_nor_write(uint32_t flash_addr, const void *data, uint32_t len) {
         plat_wdt_feed();
         if (pa_flash_dev_op(2u, flash_addr, b, chunk, 0) != 0) rc = -4;
         else if (pa_flash_dev_op(0u, flash_addr, v, chunk, 0) != 0 || memcmp(b, v, chunk) != 0) rc = -4;     /* read it back */
+        PA_FLCP(0xC1);
         flash_addr += chunk; src += chunk; len -= chunk;
     }
     plat_wdt_feed();
+    PA_FLCP(0xC2);
     pa_spi_nor_end();
+    PA_FLCP(0xC3);
     return rc;
 }
 
@@ -247,16 +262,21 @@ int pa_spi_nor_read(uint32_t flash_addr, void *dst, uint32_t len) {
         memcpy(dst, xip_ptr, len);
         return 0;
     }
+    PA_NO_FLASH_IN_ISR();
     pa_flash_dev_init();
     pa_spi_nor_begin();
+    uint32_t took_total = 0u;                                      /* the driver's own time for each 256-byte read, summed: SRAM 0x01C7C9A0 (us of the last read call), 0x01C7C9A4 (the longest) */
     while (len && rc == 0) {
         const uint32_t chunk = len > sizeof b ? (uint32_t)sizeof b : len;
-        if (pa_flash_dev_op(0u, flash_addr, b, chunk, 0) != 0) rc = -4;
-        else memcpy(out, b, chunk);
+        uint32_t took = 0u;
+        if (pa_flash_dev_op(0u, flash_addr, b, chunk, &took) != 0) rc = -4;
+        else { took_total += took; memcpy(out, b, chunk); }
         flash_addr += chunk; out += chunk; len -= chunk;
         if ((flash_addr & 0xFFFu) == 0u) plat_wdt_feed();
     }
     pa_spi_nor_end();
+    {   volatile uint32_t *T = (volatile uint32_t *)0x01C7C9A0u;
+        T[0] = took_total; if (took_total > T[1]) T[1] = took_total; }
     return rc;
 }
 

@@ -93,6 +93,7 @@ int         pa_user_nam_add(const char *name, uint8_t type, uint8_t voicing, uin
                             float head_scale, const void *blob, uint32_t blob_len,
                             const pa_user_nam_meta_t *meta /* may be NULL -> neutral */);
 void        pa_user_nam_get_amp_defaults(uint8_t user_idx, int32_t knobs_q21[6]);
+void        pa_user_nam_prefetch(uint8_t user_idx);   /* main loop: read a capture into the scratch before a swap that will load it */
 int         pa_user_nam_load_into_dsp(uint8_t user_idx, pa_nam_model_t *gru_model, pa_wavenet_model_t *wn_model);
 int         pa_user_nam_set_name(uint8_t user_idx, const char *name);
 int         pa_user_nam_delete(uint8_t user_idx);

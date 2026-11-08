@@ -1442,7 +1442,7 @@ EMU_EXPORT int emu_get_ui(int what) {
     case 30: return g_ui.view;               case 31: return g_ui.tuner.active;        case 32: return g_ui.preset_index;
     case 33: return g_ui.saved_index;        case 34: return g_ui.save_failed;
     case 35: return g_ui.home_view_mode;      /* 0 grid, 1 list */
-    case 40: return g_ui.usb_mode;
+    case 40: return g_ui.usb_mode; case 41: return g_ui.display_brightness;
     case 36: return g_ui.batt_pct;            case 37: return g_ui.battery_adc;         case 38: return g_ui.charging;          case 39: return g_ui.batt_warn;
     default: return -9999;
     }

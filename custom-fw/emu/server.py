@@ -207,7 +207,7 @@ with emu_lock:
 # Sample Player & Guitar DI Loops.
 # The test audio and the IR bank are the project's own, synthesised by
 # custom-fw/tools/gen_test_audio.py on first start (emu/samples/ and emu/irs/ are
-plucked-string DI phrases, modelled cabinets, plate and spring reverbs.
+# plucked-string DI phrases, modelled cabinets, plate and spring reverbs.
 sys.path.insert(0, str(EMU_DIR.parent / "tools"))
 try:
     import gen_test_audio
@@ -217,7 +217,7 @@ except Exception as e:  # noqa: BLE001 - the emulator still runs without them
 SAMPLE_DIR = EMU_DIR / "samples"
 g_loaded_samples = {}
 g_test_mode = "live"  # Default to live instrument input from audio interface
-g_last_sample_mode = "di_clean"
+g_last_sample_mode = "jonas_chords_1"
 g_sample_playing = False
 g_sample_loop = True
 g_sample_play_pos = 0
@@ -229,25 +229,23 @@ g_sample_clock = 0
 def load_audio_samples():
     global g_loaded_samples
     samples = {
-        # GuitarSet studio session multi-tracks (CC-BY 4.0)
-        "gs_funk_comp": ("gs_funk_comp.wav", "GuitarSet Funk 16th Rhythm Chops (112 BPM, C#)"),
-        "gs_funk_solo": ("gs_funk_solo.wav", "GuitarSet Funk Melodic Lead & Fills (114 BPM, Ab)"),
-        "gs_jazz_comp": ("gs_jazz_comp.wav", "GuitarSet Jazz Swing 7th/9th Comping (130 BPM, D)"),
-        "gs_jazz_solo": ("gs_jazz_solo.wav", "GuitarSet Jazz Bebop Melodic Runs (137 BPM, Eb)"),
-        "gs_rock_comp": ("gs_rock_comp.wav", "GuitarSet Rock Arpeggiated Rhythm (85 BPM, F)"),
-        "gs_rock_solo": ("gs_rock_solo.wav", "GuitarSet Rock Expressive Lead Solo (148 BPM, C)"),
-        "gs_bossa_comp": ("gs_bossa_comp.wav", "GuitarSet Bossa Nova Fingerstyle (154 BPM, E)"),
-        "gs_bossa_solo": ("gs_bossa_solo.wav", "GuitarSet Bossa Nova Melodic Lead (166 BPM, Ab)"),
-        "gs_acoustic_strum": ("gs_acoustic_strum.wav", "GuitarSet Acoustic Open Strumming (107 BPM, Ab)"),
-        "gs_acoustic_solo": ("gs_acoustic_solo.wav", "GuitarSet Acoustic Melodic Solo (100 BPM, C#)"),
-        # synthesised DI phrases (tools/gen_test_audio.py)
-        "di_clean": ("di_clean_chords.wav", "Clean strummed chords (G C D Em)"),
-        "di_arp": ("di_arpeggio.wav", "Clean arpeggios (Am F C G)"),
-        "di_rock": ("di_rock_riff.wav", "Rock riff, power chords + palm mutes"),
-        "di_metal": ("di_metal_chug.wav", "Metal chugs, low E 16ths"),
-        "di_blues": ("di_blues_lead.wav", "Blues lead line (A minor pentatonic)"),
-        "di_bass": ("di_bass_line.wav", "Bass line (E G A, root-octave-fifth)"),
-    }
+        # Dry guitar DI captures (courtesy of Jonas Hemmersbach)
+        "jonas_chords_1": ("jonas_chords_1.wav", "Jonas Hemmersbach - Chords 1 (Clean DI)"),
+        "jonas_chords_2": ("jonas_chords_2.wav", "Jonas Hemmersbach - Chords 2 (Clean DI)"),
+        "jonas_chords_3": ("jonas_chords_3.wav", "Jonas Hemmersbach - Chords 3 (Clean DI)"),
+        "jonas_chords_4": ("jonas_chords_4.wav", "Jonas Hemmersbach - Chords 4 (Clean DI)"),
+        "jonas_chords_5": ("jonas_chords_5.wav", "Jonas Hemmersbach - Chords 5 (Clean DI)"),
+        "jonas_lick_1": ("jonas_lick_1.wav", "Jonas Hemmersbach - Lick 1 (Lead DI)"),
+        "jonas_lick_2": ("jonas_lick_2.wav", "Jonas Hemmersbach - Lick 2 (Lead DI)"),
+        "jonas_lick_3": ("jonas_lick_3.wav", "Jonas Hemmersbach - Lick 3 (Lead DI)"),
+        "jonas_lick_4": ("jonas_lick_4.wav", "Jonas Hemmersbach - Lick 4 (Lead DI)"),
+        "jonas_lick_5": ("jonas_lick_5.wav", "Jonas Hemmersbach - Lick 5 (Lead DI)"),
+        "jonas_riff_1": ("jonas_riff_1.wav", "Jonas Hemmersbach - Riff 1 (Rhythm DI)"),
+        "jonas_riff_2": ("jonas_riff_2.wav", "Jonas Hemmersbach - Riff 2 (Rhythm DI)"),
+        "jonas_riff_3": ("jonas_riff_3.wav", "Jonas Hemmersbach - Riff 3 (Rhythm DI)"),
+        "jonas_riff_4": ("jonas_riff_4.wav", "Jonas Hemmersbach - Riff 4 (Rhythm DI)"),
+        "jonas_riff_5": ("jonas_riff_5.wav", "Jonas Hemmersbach - Riff 5 (Rhythm DI)"),
+        }
     for key, (fname, label) in samples.items():
         fpath = SAMPLE_DIR / fname
         if fpath.exists():
@@ -713,30 +711,6 @@ class EmuRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(html)
             return
 
-        if self.path.startswith("/onyx/"):
-            screen_name = self.path[6:].split("?")[0]
-            base_screens = (EMU_DIR.parent / "ui_design" / "screens").resolve()
-            try:
-                png_file = (base_screens / screen_name).resolve()
-                if png_file.is_relative_to(base_screens) and png_file.is_file():
-                    data = png_file.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/png")
-                    self.send_header("Content-Length", str(len(data)))
-                    self.end_headers()
-                    self.wfile.write(data)
-                    return
-            except Exception:
-                pass
-            self.send_error(404, f"Screen {screen_name} not found")
-            return
-
-        if self.path == "/api/onyx_screens":
-            screens_dir = (EMU_DIR.parent / "ui_design" / "screens").resolve()
-            names = sorted([f.name for f in screens_dir.glob("*.png")]) if screens_dir.exists() else []
-            self._send_json({"screens": names})
-            return
-
         if self.path == "/api/devices":
             self._send_json({
                 "devices": g_device_options,
@@ -1036,11 +1010,6 @@ class EmuRequestHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/drums":
-            playing = int(body.get("playing", 0))
-            bpm = int(body.get("bpm", 120))
-            pat = int(body.get("pattern", 0))
-            with emu_lock:
-                dll.emu_set_drums(playing, bpm, pat)
             self._send_json({"ok": True})
             return
 

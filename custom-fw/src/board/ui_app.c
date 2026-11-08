@@ -30,6 +30,7 @@
 #include "pa_audio_core.h"
 #include "pa_drums.h"
 #include "pa_config.h"
+#include "pa_plat.h"                 /* plat_ms, PA_CP */
 #include "../../include/pa_stock_assets.h"
 #include "../../include/pa_cab.h"
 #include "../../include/pa_user_nam.h"
@@ -42,14 +43,18 @@
 #include "onyx_block_icons.h"
 #include "../../include/pa_settings.h"
 #include "../../include/pa_audio.h"
-#include "../ui/project_alpha_ui.h"
+#include "../ui/icarus_ui.h"
 #include "../ui/lab_ui.h"
-#include "../effects/project_alpha/alpha.h"
+#include "../effects/icarus/icarus.h"
 
-__attribute__((weak)) void alpha_ui_enter(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
-__attribute__((weak)) void alpha_ui_exit(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
-__attribute__((weak)) void alpha_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, uint32_t b, int32_t e) { (void)ui; (void)chain; (void)b; (void)e; }
-__attribute__((weak)) void alpha_ui_render(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) { (void)ui; (void)chain; }
+__attribute__((weak)) void icarus_ui_enter(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
+__attribute__((weak)) void icarus_ui_exit(pa_ui_ctx_t *ui, pa_fx_chain_t *chain) { (void)ui; (void)chain; }
+__attribute__((weak)) void icarus_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, uint32_t b, int32_t e) { (void)ui; (void)chain; (void)b; (void)e; }
+__attribute__((weak)) void icarus_ui_render(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) { (void)ui; (void)chain; }
+__attribute__((weak)) icarus_state_t *icarus_create(void) { return 0; }
+__attribute__((weak)) void icarus_set_mode(icarus_state_t *s, uint8_t m) { (void)s; (void)m; }
+__attribute__((weak)) void icarus_apply_params(icarus_state_t *s) { (void)s; }
+__attribute__((weak)) void icarus_sync_chain_routing(icarus_state_t *s, pa_fx_chain_t *chain) { (void)s; (void)chain; }
 
 extern void plat_backlight_set(uint8_t pct);      /* IMP-06 (gpio_scan.c) */
 extern uint32_t plat_ms(void);
@@ -83,6 +88,16 @@ uint8_t pa_battery_pct_from_mv(uint16_t mv) {
 void pa_ui_mark_settings_dirty(pa_ui_ctx_t *ui) {
     ui->settings_dirty = 1;
     ui->settings_dirty_ms = plat_ms();
+}
+
+static void pa_ui_dirty_throttled(pa_ui_ctx_t *ui) {
+    if (!ui) return;
+    static uint32_t s_param_dirty_ms;
+    const uint32_t now = plat_ms();
+    if (s_param_dirty_ms == 0u || (uint32_t)(now - s_param_dirty_ms) >= 50u) {
+        s_param_dirty_ms = now;
+        ui->dirty = 1;
+    }
 }
 
 extern void st7735s_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t rgb565);
@@ -148,40 +163,33 @@ static const char *get_slot_label(uint8_t slot) {
         case PA_SLOT_AMP:      return "AMP";
         case PA_SLOT_CAB:      return "CAB";
         case PA_SLOT_EQ:       return "EQ";
-        case PA_SLOT_MOD:      return "MOD";
-        case PA_SLOT_DELAY:    return "DLY";
-        case PA_SLOT_REVERB:   return "REV";
         default: return "???";
     }
 }
 
-static const char *get_slot_short(uint8_t slot) {
+const char *pa_ui_get_slot_short(uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return "DYN";
         case PA_SLOT_SYNTH:    return "SYN";
         case PA_SLOT_AMP:      return "AMP";
         case PA_SLOT_CAB:      return "CAB";
         case PA_SLOT_EQ:       return "EQ";
-        case PA_SLOT_MOD:      return "MOD";
-        case PA_SLOT_DELAY:    return "DLY";
-        case PA_SLOT_REVERB:   return "REV";
         default: return "???";
     }
 }
+static const char *get_slot_short(uint8_t slot) { return pa_ui_get_slot_short(slot); }
 
-static uint16_t get_slot_color(uint8_t slot) {
+uint16_t pa_ui_get_slot_color(uint8_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return ONYX_COL_DYN;
         case PA_SLOT_DRIVE:    return ONYX_COL_DRIVE;
         case PA_SLOT_AMP:      return ONYX_COL_AMP;
         case PA_SLOT_CAB:      return ONYX_COL_CAB;
         case PA_SLOT_EQ:       return ONYX_COL_EQ;
-        case PA_SLOT_MOD:      return ONYX_COL_MOD;
-        case PA_SLOT_DELAY:    return ONYX_COL_DLY;
-        case PA_SLOT_REVERB:   return ONYX_COL_REV;
         default: return ONYX_COL_TEXT;
     }
 }
+static uint16_t get_slot_color(uint8_t slot) { return pa_ui_get_slot_color(slot); }
 
 static uint8_t get_slot_model_count(const pa_ui_ctx_t *ui, uint8_t slot) {
     (void)ui;
@@ -212,15 +220,10 @@ static const char *get_slot_model_name(const pa_ui_ctx_t *ui, uint8_t slot, uint
     /* IMP-13: order MUST match the DSP enums (fx_dynamics/drive/mod/delay/reverb.c) */
     static const char * const dyn_models[5] = { "GATE", "BOOST+GATE", "COMP+GATE", "AI GATE MS", "COMP" };
     static const char * const eq_models[3]  = { "5-BAND", "LOW/HIGH CUT", "PARAMETRIC-3" };
-    static const char * const mod_models[7] = { "CHORUS", "PHASER", "FLANGER", "TREMOLO", "VIBRATO", "UNIVIBE", "AUTO FILTER" };
-    static const char * const dly_models[9] = { "ANALOG", "DUCKING", "TAPE", "DUAL", "LO-FI",
-                                                "DIGITAL", "PING PONG", "REVERSE", "SLAPBACK" };
-    static const char * const rev_models[8] = { "ROOM", "HALL", "SWELL", "SPRING", "SHIMMER", "CLOUD",
-                                                "PLATE", "AMBIENCE" };
 
     switch (slot) {
         case PA_SLOT_DYNAMICS: return dyn_models[idx % 5u];
-        case PA_SLOT_SYNTH:    return alpha_get_factory_preset((uint8_t)(idx % ALPHA_FACTORY_PRESET_COUNT))->name;
+        case PA_SLOT_SYNTH:    return icarus_get_factory_preset((uint8_t)(idx % ICARUS_FACTORY_PRESET_COUNT))->name;
         case PA_SLOT_AMP:
             if (idx < PA_STOCK_AMP_COUNT) {
                 return pa_stock_get_amp_name(idx);
@@ -232,9 +235,6 @@ static const char *get_slot_model_name(const pa_ui_ctx_t *ui, uint8_t slot, uint
                             if (g_pa_user_cab_active) return "USER CAB";          /* a live cabinet from an upload is loaded (pa_audio_core_load_user_cab) */
                             return pa_cab_name(idx % pa_cab_total_count()); }
         case PA_SLOT_EQ:       return eq_models[idx % 3u];
-        case PA_SLOT_MOD:      return mod_models[idx % 7u];
-        case PA_SLOT_DELAY:    return dly_models[idx % 9u];
-        case PA_SLOT_REVERB:   return rev_models[idx % 8u];
         default: return "STANDARD";
     }
 }
@@ -271,9 +271,6 @@ static uint8_t get_slot_param_count(const pa_ui_ctx_t *ui, uint8_t slot) {
             static const uint8_t n[3] = { 5, 3, 4 };
             return n[ui ? (ui->slot_type[PA_SLOT_EQ] % 3u) : 0];
         }
-        case PA_SLOT_MOD:      return 4;   /* + FDBK (was hidden) */
-        case PA_SLOT_DELAY:    return 4;
-        case PA_SLOT_REVERB:   return 4;
         default: return 0;
     }
 }
@@ -294,21 +291,6 @@ static const char *get_slot_param_label(const pa_ui_ctx_t *ui, uint8_t slot, uin
     static const char * const eq_bands[5]   = { "100", "400", "1k", "3k", "8k" };
     static const char * const eq_cut[3]     = { "LOWCUT", "HICUT", "LEVEL" };
     static const char * const eq_par[4]     = { "LOW", "MID", "FREQ", "HIGH" };
-    /* MOD: per type, in the DSP's type order (fx_mod.c). "---" = the knob does nothing. */
-    static const char * const mod_params[7][4] = {
-        { "RATE", "DEPTH", "MIX", "---"  },   /* CHORUS */
-        { "RATE", "DEPTH", "MIX", "FDBK" },   /* PHASER */
-        { "RATE", "DEPTH", "MIX", "FDBK" },   /* FLANGER */
-        { "RATE", "DEPTH", "---", "---"  },   /* TREMOLO */
-        { "RATE", "DEPTH", "---", "---"  },   /* VIBRATO */
-        { "RATE", "DEPTH", "MIX", "FDBK" },   /* UNIVIBE */
-        { "RATE", "RANGE", "MIX", "RESO" },   /* AUTO FILTER: DEPTH = sweep range, FDBK = resonance */
-    };
-    /* DELAY: the 4th knob is a different control per type (fx_delay.c) */
-    static const char * const dly_aux[9] = { "MOD", "RELEASE", "GRIT", "RATIO", "GRIT",
-                                             "TONE", "TONE", "TONE", "TONE" };
-    static const char * const dly_params[4] = { "TIME", "FDBK", "MIX", "" };
-    static const char * const rev_params[4] = { "DECAY", "LOWCUT", "TONE", "MIX" };
 
     switch (slot) {
         case PA_SLOT_DYNAMICS: return (p < 4) ? dyn_params[ui ? (ui->slot_type[PA_SLOT_DYNAMICS] % 5u) : 0][p] : "";
@@ -321,12 +303,6 @@ static const char *get_slot_param_label(const pa_ui_ctx_t *ui, uint8_t slot, uin
             if (et == 2u) return (p < 4) ? eq_par[p] : "";
             return (p < 5) ? eq_bands[p] : "";
         }
-        case PA_SLOT_MOD:      return (p < 4) ? mod_params[ui ? (ui->slot_type[PA_SLOT_MOD] % 7u) : 0][p] : "";
-        case PA_SLOT_DELAY:    return (p == 3) ? dly_aux[ui ? (ui->slot_type[PA_SLOT_DELAY] % 9u) : 0]
-                                              : (p < 3) ? dly_params[p] : "";
-        case PA_SLOT_REVERB:   /* AMBIENCE's first knob is the room SIZE, not a decay */
-            if (p == 0 && ui && (ui->slot_type[PA_SLOT_REVERB] % 8u) == 7u) return "SIZE";
-            return (p < 4) ? rev_params[p] : "";
         default: return "";
     }
 }
@@ -625,7 +601,7 @@ static void draw_param_card(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
 
     /* 2. Legend, top left: the block's colour pip and the knob's name */
     st7735s_fill_rect((uint16_t)(x + 5), (uint16_t)(y + 6), 3, 5, col);
-    uint16_t lcol = (is_sel == 2) ? LAB_COL_PHOS : ((is_sel == 1) ? ALPHA_COL_AMBER : ONYX_COL_MUTE);
+    uint16_t lcol = (is_sel == 2) ? LAB_COL_PHOS : ((is_sel == 1) ? ICARUS_COL_AMBER : ONYX_COL_MUTE);
     ui_draw_str((uint16_t)(x + 11), (uint16_t)(y + 6), label, lcol, face);
 
     /* 3. The value, big, centred (0.0 .. 10.0, or a number + a small unit) */
@@ -636,7 +612,7 @@ static void draw_param_card(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     if (ulen) text_w = (uint16_t)(text_w + 3u + ulen * 6u - 1u);
     uint16_t vx = (w > text_w) ? (uint16_t)(x + (w - text_w) / 2) : (uint16_t)(x + 4);
     uint16_t vy = (uint16_t)(y + (h / 2) - 9);
-    ui_draw_str_scaled(vx, vy, vtxt, is_sel == 2 ? LAB_COL_PHOS : ALPHA_COL_TEXT, face, 2);
+    ui_draw_str_scaled(vx, vy, vtxt, is_sel == 2 ? LAB_COL_PHOS : ICARUS_COL_TEXT, face, 2);
     if (ulen)
         ui_draw_str((uint16_t)(vx + vlen * 12u + 1u), (uint16_t)(vy + 7u), unit, ONYX_COL_MUTE, face);
 
@@ -720,9 +696,6 @@ __attribute__((unused)) static uint8_t slot_to_onyx_icon_idx(uint8_t slot) {
         case PA_SLOT_AMP:      return ONYX_SLOT_AMP;   /* 2 */
         case PA_SLOT_CAB:      return ONYX_SLOT_CAB;   /* 6 */
         case PA_SLOT_EQ:       return ONYX_SLOT_EQ;    /* 7 */
-        case PA_SLOT_MOD:      return ONYX_SLOT_MOD;   /* 3 */
-        case PA_SLOT_DELAY:    return ONYX_SLOT_DLY;   /* 4 */
-        case PA_SLOT_REVERB:   return ONYX_SLOT_REV;   /* 5 */
         default:               return 0;
     }
 }
@@ -730,7 +703,6 @@ __attribute__((unused)) static uint8_t slot_to_onyx_icon_idx(uint8_t slot) {
 /* 8 Bit-Exact 28x28 Pixel-Art Icons for Home Grid View matching Onyx ICON_SPEC.md */
 /* What the screens show as ON: a block that is fading out (the audio thread clears `active` only when the fade ends, up to a block later and with no redraw after it) is
  * off already. The home grid used this test; the editor, the list view and the block title did not and kept saying ON until something else redrew them. */
-#define NODE_SHOWN_ON(nd) ((nd) && (nd)->active && (nd)->fade_dir >= 0)
 
 __attribute__((unused)) static void draw_grid_icon(uint16_t tile_x, uint16_t tile_y, uint8_t slot, int is_on) {
     uint8_t icon_idx = slot_to_onyx_icon_idx(slot);
@@ -769,19 +741,19 @@ __attribute__((unused)) static void draw_grid_icon(uint16_t tile_x, uint16_t til
 static void render_home_header(const pa_ui_ctx_t *ui) {
     /* 1. Band + amber rule */
     st7735s_fill_rect(0, 0, DISP_W, 26, LAB_COL_FACE);
-    st7735s_fill_rect(0, 26, DISP_W, 1, ALPHA_COL_AMBER);
+    st7735s_fill_rect(0, 26, DISP_W, 1, ICARUS_COL_AMBER);
 
     /* 2. Preset number, 2x, and what mode the unit is in */
     char pstr[4];
     fmt_preset(pstr, ui->preset_index);
-    ui_draw_str_scaled(8, 6, pstr, ALPHA_COL_AMBER, LAB_COL_FACE, 2);
+    ui_draw_str_scaled(8, 6, pstr, ICARUS_COL_AMBER, LAB_COL_FACE, 2);
     if (ui->view == PA_UI_VIEW_MOVING) {
         char mov_buf[20] = "MOVE ";
         const char *slbl = get_slot_label(ui->moving_slot);
         int mi = 5;
         while (*slbl && mi < 18) mov_buf[mi++] = *slbl++;
         mov_buf[mi] = '\0';
-        ui_draw_str(52, 10, mov_buf, ALPHA_COL_AMBER, LAB_COL_FACE);
+        ui_draw_str(52, 10, mov_buf, ICARUS_COL_AMBER, LAB_COL_FACE);
     } else {
         lab_led(52, 10, ui->play_mode == 1, LAB_COL_PHOS);
         ui_draw_str(62, 10, (ui->play_mode == 1) ? "STOMP" : "PRESET", (ui->play_mode == 1) ? LAB_COL_PHOS : ONYX_COL_MUTE, LAB_COL_FACE);
@@ -796,20 +768,20 @@ static void render_home_header(const pa_ui_ctx_t *ui) {
     if (ui->batt_warn && ui->view != PA_UI_VIEW_MOVING) {
         lab_panel(6, 31, 228, 32, ONYX_COL_BAD, ONYX_COL_BAD);
         ui_draw_str(14, 43, (ui->batt_warn >= 2) ? "BATTERY CRITICAL - CHARGE NOW" : "LOW BATTERY - CHARGE SOON",
-                    ALPHA_COL_TEXT, ONYX_COL_BAD);
+                    ICARUS_COL_TEXT, ONYX_COL_BAD);
         return;
     }
-    lab_panel(6, 31, 228, 32, ALPHA_COL_SCOPE_BG, ALPHA_COL_GRID);
-    ui_draw_str(11, 36, "IN", ONYX_COL_MUTE, ALPHA_COL_SCOPE_BG);
+    lab_panel(6, 31, 228, 32, ICARUS_COL_SCOPE_BG, ICARUS_COL_GRID);
+    ui_draw_str(11, 36, "IN", ONYX_COL_MUTE, ICARUS_COL_SCOPE_BG);
     lab_ladder(30, 36, 140, 6, ui->in_peak_pct);
-    ui_draw_str(11, 49, "OUT", ONYX_COL_MUTE, ALPHA_COL_SCOPE_BG);
+    ui_draw_str(11, 49, "OUT", ONYX_COL_MUTE, ICARUS_COL_SCOPE_BG);
     lab_ladder(30, 49, 140, 6, ui->out_peak_pct);
-    st7735s_fill_rect(177, 34, 1, 26, ALPHA_COL_GRID);
-    ui_draw_str(185, 35, "VOL", ONYX_COL_MUTE, ALPHA_COL_SCOPE_BG);
+    st7735s_fill_rect(177, 34, 1, 26, ICARUS_COL_GRID);
+    ui_draw_str(185, 35, "VOL", ONYX_COL_MUTE, ICARUS_COL_SCOPE_BG);
     char vstr[6];
     if (ui->preset_volume >= 100u) { vstr[0] = '1'; vstr[1] = '0'; vstr[2] = '0'; vstr[3] = '\0'; }
     else { fmt_u2(vstr, ui->preset_volume); vstr[2] = '\0'; }
-    ui_draw_str_scaled(185, 45, vstr, ALPHA_COL_AMBER, ALPHA_COL_SCOPE_BG, 2);
+    ui_draw_str_scaled(185, 45, vstr, ICARUS_COL_AMBER, ICARUS_COL_SCOPE_BG, 2);
 }
 
 /* One rack row per block. detail: also the block's first knob on a tick ruler (GRID view); 0 = names only (LIST view). */
@@ -835,7 +807,7 @@ static void render_home_rack(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, 
         st7735s_fill_rect(13, (uint16_t)(cy - 1), 5, 2, on ? col : ONYX_COL_DIM);
 
         /* the row */
-        if (moving) lab_outline(16, (uint16_t)(y - 2), 220, (uint16_t)(RACK_H + 4), ALPHA_COL_AMBER);
+        if (moving) lab_outline(16, (uint16_t)(y - 2), 220, (uint16_t)(RACK_H + 4), ICARUS_COL_AMBER);
         lab_card(18, y, 216, RACK_H, sel);
 
         /* block plate: lit in the block's colour when on */
@@ -883,10 +855,10 @@ static void render_home_rack(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, 
             strncpy(base, mbuf, 15); base[15] = '\0';
             int blen = (int)strlen(base);
             while (blen > 0 && base[blen - 1] == ' ') base[--blen] = '\0';
-            ui_draw_str(64, ny, base, on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, nbg);
-            ui_draw_str((uint16_t)(64 + (blen + 1) * 6), ny, "A2", on ? ALPHA_COL_AMBER : ONYX_COL_DIM, nbg);
+            ui_draw_str(64, ny, base, on ? ICARUS_COL_TEXT : ONYX_COL_MUTE, nbg);
+            ui_draw_str((uint16_t)(64 + (blen + 1) * 6), ny, "A2", on ? ICARUS_COL_AMBER : ONYX_COL_DIM, nbg);
         } else {
-            ui_draw_str(64, ny, mbuf, on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, nbg);
+            ui_draw_str(64, ny, mbuf, on ? ICARUS_COL_TEXT : ONYX_COL_MUTE, nbg);
         }
 
         /* the block's first knob on a tick ruler; or the cab-muted marker */
@@ -906,14 +878,14 @@ static void render_home_rack(const pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, 
                 const char *plab = get_slot_param_label(ui, slot, 0);
                 ui_draw_str(64, (uint16_t)(y + 17), plab, ONYX_COL_MUTE, nbg);
                 lab_ruler(104, (uint16_t)(y + 22), 74, pct, on ? col : ONYX_COL_DIM, 0, sel);
-                ui_draw_str((uint16_t)(214 - vn * 6), (uint16_t)(y + 17), vbuf, on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, nbg);
+                ui_draw_str((uint16_t)(214 - vn * 6), (uint16_t)(y + 17), vbuf, on ? ICARUS_COL_TEXT : ONYX_COL_MUTE, nbg);
             }
         }
 
         /* state LED, and the cursor / move marker */
         lab_led(222, (uint16_t)(y + 5), on, col);
-        if (moving)   ui_draw_str(216, (uint16_t)(y + 17), "<>", ALPHA_COL_AMBER, face);
-        else if (sel) ui_draw_str(222, (uint16_t)(y + 17), ">", ALPHA_COL_AMBER, face);
+        if (moving)   ui_draw_str(216, (uint16_t)(y + 17), "<>", ICARUS_COL_AMBER, face);
+        else if (sel) ui_draw_str(222, (uint16_t)(y + 17), ">", ICARUS_COL_AMBER, face);
     }
 
     /* what the buttons do here */
@@ -973,17 +945,17 @@ static void render_param_edit(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain) {
     st7735s_fill_rect(8, 40, 4, 40, is_active ? blk_col : ONYX_COL_DIM);
 
     /* Left and Right navigation chevrons */
-    ui_draw_str(16, 52, "<", is_model_sel ? (ui->edit_mode ? LAB_COL_PHOS : ALPHA_COL_AMBER) : ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
-    ui_draw_str(218, 52, ">", is_model_sel ? (ui->edit_mode ? LAB_COL_PHOS : ALPHA_COL_AMBER) : ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
+    ui_draw_str(16, 52, "<", is_model_sel ? (ui->edit_mode ? LAB_COL_PHOS : ICARUS_COL_AMBER) : ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
+    ui_draw_str(218, 52, ">", is_model_sel ? (ui->edit_mode ? LAB_COL_PHOS : ICARUS_COL_AMBER) : ONYX_COL_MUTE, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
 
     /* Big model name */
     const char *mname = get_slot_model_name(ui, slot, ui->slot_type[slot]);
     uint16_t mlen = 0;
     while (mname[mlen]) mlen++;
     if (mlen <= 12) {
-        ui_draw_str_scaled(30, 42, mname, ALPHA_COL_TEXT, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE, 2);
+        ui_draw_str_scaled(30, 42, mname, ICARUS_COL_TEXT, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE, 2);
     } else {
-        ui_draw_str(30, 45, mname, ALPHA_COL_TEXT, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
+        ui_draw_str(30, 45, mname, ICARUS_COL_TEXT, is_model_sel ? LAB_COL_FACE_HI : LAB_COL_FACE);
     }
 
     /* Sub-row: [ STOCK MODEL ]  AMP 09 OF 20  OR  [ NAM A2 CAPTURE ]  NAM 21 OF 21 */
@@ -1228,104 +1200,7 @@ static void render_tuner(const pa_ui_ctx_t *ui) {
  * header, because the header is the device's own.
  */
 static void render_drums(const pa_ui_ctx_t *ui) {
-    render_sub_title_bar("GROOVE STATION", ONYX_COL_TEXT, 0, ui->drum_playing, 0, ui);
-
-    /* ---- 2. the style card ------------------------------------------------ */
-    ui_onyx_cut_box(8, 34, 231, 63, 2, ONYX_COL_PANEL, ONYX_COL_LINE);
-    const char *sname = pa_drums_get_style_name(ui->drum_pattern % PA_DRUM_STYLE_COUNT);
-    ui_onyx_draw_str(120, 40, sname, 1, ONYX_COL_TEXT, UI_ALIGN_CENTER);
-    char idx_buf[16];
-    idx_buf[0] = 'S'; idx_buf[1] = 'T'; idx_buf[2] = 'Y'; idx_buf[3] = 'L';
-    idx_buf[4] = 'E'; idx_buf[5] = ' ';
-    fmt_u2(&idx_buf[6], (ui->drum_pattern % PA_DRUM_STYLE_COUNT) + 1u);
-    idx_buf[8] = '/';
-    idx_buf[9] = '4'; idx_buf[10] = '0';
-    idx_buf[11] = '\0';
-    ui_onyx_draw_str(120, 51, idx_buf, 1, ONYX_COL_MUTE, UI_ALIGN_CENTER);
-    ui_onyx_draw_sprite(16, 46, UI_SPRITE_CHEV_L, 1, ONYX_COL_MUTE);
-    ui_onyx_draw_sprite(221, 46, UI_SPRITE_CHEV_R, 1, ONYX_COL_MUTE);
-
-    /* ---- 3 + 4. the tempo -------------------------------------------------- */
-    char bstr[6];
-    fmt_plain(bstr, ui->drum_bpm);
-    uint16_t bwid = ui_onyx_text_w(bstr, 5);
-    ui_onyx_draw_str(112, 80, bstr, 5, ONYX_COL_SELECT, UI_ALIGN_CENTER);
-    ui_onyx_draw_str((uint16_t)(112 + bwid / 2u + 6u), 108, "BPM", 1, ONYX_COL_MUTE, UI_ALIGN_LEFT);
-
-    /* ---- 5. the tempo chevrons --------------------------------------------- */
-    ui_onyx_draw_sprite(14, 95, UI_SPRITE_CHEV_L, 1, ONYX_COL_DIM);
-    ui_onyx_draw_sprite(223, 95, UI_SPRITE_CHEV_R, 1, ONYX_COL_DIM);
-
-    /* ---- 6. the step strip ------------------------------------------------
-     * The current step comes from the drum engine's own clock (ui->drum_step
-     * is copied from drums->current_step), so the strip can never drift from
-     * the audio.
-     *
-     * FW-FIX "the bar goes away after the 4th": the engine counts steps across
-     * the WHOLE pattern, and the reference rhythms are up to 8 bars long, so
-     * current_step runs to 383. The strip is one 4/4 bar (16 blocks,
-     * GROOVE_SPEC.md section 6), so the playhead has to be taken relative to
-     * the bar. Without that it lit up for the first bar and then vanished for
-     * the remaining bars, until the loop came round again. */
-    int step = ui->drum_playing ? (int)pa_drums_bar_block(ui->drum_step) : -1;
-    for (int i = 0; i < 16; i++) {
-        int x = 12 + i * 13 + (i / 4) * 4;
-        int down = (i % 4 == 0);
-        uint16_t c;
-        if (i == step) {
-            c = ONYX_COL_SELECT;
-        } else if (step >= 0 && (i / 4) == (step / 4) && i < step) {
-            c = ONYX_COL_TEXT;         /* the beat fills in as it plays */
-        } else if (down) {
-            c = ONYX_COL_DIM;
-        } else {
-            c = ONYX_COL_LINE;
-        }
-        st7735s_fill_rect((uint16_t)x, (uint16_t)(down ? 128 : 130), 10,
-                          (uint16_t)(down ? 9 : 7), c);
-    }
-
-    /* ---- 7. the play / stop button ----------------------------------------- */
-    uint16_t pcol = ui->drum_playing ? ONYX_COL_OK : ONYX_COL_TEXT;
-    ui_onyx_cut_box(8, 150, 116, 200, 2, ONYX_COL_PANEL, pcol);
-    if (ui->drum_playing) {
-        st7735s_fill_rect(18, 168, 12, 12, pcol);      /* the stop square */
-    } else {
-        ui_onyx_draw_sprite(18, 167, UI_SPRITE_PLAY, 2, pcol);
-    }
-    ui_onyx_draw_str(38, 162, ui->drum_playing ? "STOP" : "PLAY", 2, pcol, UI_ALIGN_LEFT);
-    ui_onyx_draw_str(38, 182, "PRESS PARA", 1, ONYX_COL_MUTE, UI_ALIGN_LEFT);
-
-    /* ---- 8. the drum volume ------------------------------------------------ */
-    uint8_t dvol = ui->drum_volume;
-    ui_onyx_cut_box(124, 150, 231, 200, 2, ONYX_COL_PANEL, ONYX_COL_LINE);
-    ui_onyx_draw_str(132, 160, "DRUM VOL", 1, ONYX_COL_MUTE, UI_ALIGN_LEFT);
-    char dvol_str[6];
-    uint8_t dlen = fmt_plain(dvol_str, dvol);
-    dvol_str[dlen] = '%';
-    dvol_str[dlen + 1] = '\0';
-    ui_onyx_draw_str(224, 160, dvol_str, 1, ONYX_COL_TEXT, UI_ALIGN_RIGHT);
-    ui_onyx_segments(132, 172, 10, 7, 6, 2, (uint8_t)((dvol + 5u) / 10u),
-                     ONYX_COL_TEXT, ONYX_COL_LINE);
-    ui_onyx_draw_str(178, 184, "VOL-/+", 1, ONYX_COL_DIM, UI_ALIGN_CENTER);
-
-    /* ---- 9. the key hints -------------------------------------------------- */
-    const char *k1 = "< >";
-    const char *a1 = "STYLE";
-    const char *k2 = "TURN";
-    const char *a2 = "BPM";
-    uint16_t w1 = (uint16_t)(ui_onyx_text_w(k1, 1) + 10u + ui_onyx_text_w(a1, 1));
-    uint16_t w2 = (uint16_t)(ui_onyx_text_w(k2, 1) + 10u + ui_onyx_text_w(a2, 1));
-    uint16_t hx = (uint16_t)(120u - (w1 + 20u + w2) / 2u);
-    uint16_t kwid = ui_onyx_text_w(k1, 1);
-    ui_onyx_cut_box(hx, 215, (uint16_t)(hx + kwid + 5u), 227, 1, ONYX_COL_PANEL, ONYX_COL_DIM);
-    ui_onyx_draw_str((uint16_t)(hx + 3u), 218, k1, 1, ONYX_COL_TEXT, UI_ALIGN_LEFT);
-    ui_onyx_draw_str((uint16_t)(hx + kwid + 10u), 218, a1, 1, ONYX_COL_MUTE, UI_ALIGN_LEFT);
-    hx = (uint16_t)(hx + w1 + 20u);
-    kwid = ui_onyx_text_w(k2, 1);
-    ui_onyx_cut_box(hx, 215, (uint16_t)(hx + kwid + 5u), 227, 1, ONYX_COL_PANEL, ONYX_COL_DIM);
-    ui_onyx_draw_str((uint16_t)(hx + 3u), 218, k2, 1, ONYX_COL_TEXT, UI_ALIGN_LEFT);
-    ui_onyx_draw_str((uint16_t)(hx + kwid + 10u), 218, a2, 1, ONYX_COL_MUTE, UI_ALIGN_LEFT);
+    (void)ui;
 }
 
 /* Render Save Preset Dialog */
@@ -1420,11 +1295,11 @@ static void render_saved_toast(const pa_ui_ctx_t *ui) {
 static void render_settings_menu(const pa_ui_ctx_t *ui) {
     render_sub_title_bar("SETTINGS", ONYX_COL_TEXT, 0, 1, 0, ui);
 
-    #define SETTINGS_ROW_COUNT 12
+    #define SETTINGS_ROW_COUNT 11
     static const char * const menu_labels[SETTINGS_ROW_COUNT] = {
         "Input / Output", "Bluetooth", "Display", "Play Mode",
         "Fizz Filter", "USB Audio", "Performance", "System",
-        "Output Limit", "USB Loopback", "USB Mode", "Project Alpha"
+        "Output Limit", "USB Loopback", "USB Mode"
     };
 
     char cpu_str[8];
@@ -1469,7 +1344,6 @@ static void render_settings_menu(const pa_ui_ctx_t *ui) {
          * with the dry guitar also heard. Click cycles. */
         else if (idx == 10) { static const char * const k_um[3] = { "AMP", "INTERFACE", "IF+MONITOR" };
                               val = k_um[ui->usb_mode % 3u]; }
-        else if (idx == 11) { val = alpha_is_active() ? "ACTIVE >" : "SYNTH >"; }
 
         uint16_t vlen = 0;
         while (val[vlen]) vlen++;
@@ -1616,52 +1490,33 @@ static void render_display_settings(const pa_ui_ctx_t *ui) {
     const char *dim_txt = (ui->display_auto_dim == 0) ? "OFF" : ((ui->display_auto_dim == 1) ? "30 s" : ((ui->display_auto_dim == 2) ? "1 m" : "5 m"));
     ui_draw_str(198, 86, dim_txt, ONYX_COL_TEXT, sel1 ? ONYX_COL_PANEL : ONYX_COL_BG);
 
-    /* Row 2: Home View (GRID / LIST) */
+    /* Row 2: Battery % */
     int sel2 = (ui->sub_cursor == 2);
     if (sel2) {
         fill_rounded_box(4, 112, 232, 32, ONYX_COL_PANEL);
         st7735s_fill_rect(4, 116, 3, 24, ONYX_COL_SELECT);
     }
-    ui_draw_str(14, 122, "HOME VIEW", sel2 ? ONYX_COL_SELECT : ONYX_COL_MUTE, sel2 ? ONYX_COL_PANEL : ONYX_COL_BG);
-    fill_rounded_box(128, 118, 100, 20, ONYX_COL_PANEL);
-    draw_rounded_rect(128, 118, 100, 20, sel2 ? ONYX_COL_SELECT : ONYX_COL_LINE);
-    if (ui->home_view_mode == 0) {
-        fill_rounded_box(130, 120, 48, 16, ONYX_COL_TEXT);
-        ui_draw_str(138, 124, "GRID", ONYX_COL_BG, ONYX_COL_TEXT);
-        ui_draw_str(188, 124, "LIST", ONYX_COL_MUTE, ONYX_COL_PANEL);
+    ui_draw_str(14, 122, "BATTERY %", sel2 ? ONYX_COL_SELECT : ONYX_COL_MUTE, sel2 ? ONYX_COL_PANEL : ONYX_COL_BG);
+    /* The pill is 38 x 21 (x 190..227, y 118..138, centre y 128); the knob is 11 px (radius 5), 5 px from the pill's edge on every side. */
+    if (ui->display_battery_pct) {
+        fill_rounded_box(190, 118, 38, 21, ONYX_COL_TEXT);
+        ui_draw_str(195, 124, "ON", ONYX_COL_BG, ONYX_COL_TEXT);
+        st7735s_fill_rect((uint16_t)((217) - 5), (uint16_t)((128) - 5), 10, 10, ONYX_COL_BG);
     } else {
-        fill_rounded_box(178, 120, 48, 16, ONYX_COL_TEXT);
-        ui_draw_str(138, 124, "GRID", ONYX_COL_MUTE, ONYX_COL_PANEL);
-        ui_draw_str(188, 124, "LIST", ONYX_COL_BG, ONYX_COL_TEXT);
+        fill_rounded_box(190, 118, 38, 21, ONYX_COL_PANEL);
+        draw_rounded_rect(190, 118, 38, 21, ONYX_COL_DIM);
+        st7735s_fill_rect((uint16_t)((200) - 5), (uint16_t)((128) - 5), 10, 10, ONYX_COL_DIM);
+        ui_draw_str(208, 124, "OFF", ONYX_COL_MUTE, ONYX_COL_PANEL);
     }
 
-    /* Row 3: Battery % */
+    /* Row 3: Theme */
     int sel3 = (ui->sub_cursor == 3);
     if (sel3) {
         fill_rounded_box(4, 148, 232, 32, ONYX_COL_PANEL);
         st7735s_fill_rect(4, 152, 3, 24, ONYX_COL_SELECT);
     }
-    ui_draw_str(14, 158, "BATTERY %", sel3 ? ONYX_COL_SELECT : ONYX_COL_MUTE, sel3 ? ONYX_COL_PANEL : ONYX_COL_BG);
-    /* The pill is 38 x 21 (x 190..227, y 154..174, centre y 164); the knob is 11 px (radius 5), 5 px from the pill's edge on every side (it used to be 13 px at 222, touching the right edge). */
-    if (ui->display_battery_pct) {
-        fill_rounded_box(190, 154, 38, 21, ONYX_COL_TEXT);
-        ui_draw_str(195, 160, "ON", ONYX_COL_BG, ONYX_COL_TEXT);
-        st7735s_fill_rect((uint16_t)((217) - 5), (uint16_t)((164) - 5), 10, 10, ONYX_COL_BG);
-    } else {
-        fill_rounded_box(190, 154, 38, 21, ONYX_COL_PANEL);
-        draw_rounded_rect(190, 154, 38, 21, ONYX_COL_DIM);
-        st7735s_fill_rect((uint16_t)((200) - 5), (uint16_t)((164) - 5), 10, 10, ONYX_COL_DIM);
-        ui_draw_str(208, 160, "OFF", ONYX_COL_MUTE, ONYX_COL_PANEL);
-    }
-
-    /* Row 4: Theme */
-    int sel4 = (ui->sub_cursor == 4);
-    if (sel4) {
-        fill_rounded_box(4, 184, 232, 32, ONYX_COL_PANEL);
-        st7735s_fill_rect(4, 188, 3, 24, ONYX_COL_SELECT);
-    }
-    ui_draw_str(14, 194, "THEME", sel4 ? ONYX_COL_SELECT : ONYX_COL_MUTE, sel4 ? ONYX_COL_PANEL : ONYX_COL_BG);
-    ui_draw_str(ui->theme ? 172 : 196, 194, ui->theme ? "CONTRAST" : "ONYX", ONYX_COL_TEXT, sel4 ? ONYX_COL_PANEL : ONYX_COL_BG);
+    ui_draw_str(14, 158, "THEME", sel3 ? ONYX_COL_SELECT : ONYX_COL_MUTE, sel3 ? ONYX_COL_PANEL : ONYX_COL_BG);
+    ui_draw_str(ui->theme ? 172 : 196, 158, ui->theme ? "CONTRAST" : "ONYX", ONYX_COL_TEXT, sel3 ? ONYX_COL_PANEL : ONYX_COL_BG);
 }
 
 /* Render Performance Telemetry Screen */
@@ -1960,7 +1815,7 @@ void pa_ui_init(pa_ui_ctx_t *ui) {
     ui->out_level_pct     = 100;  /* 100 % = 0 dB at the DAC (IMP-05: the setting is real now) */
     ui->io_output_type    = 0;    /* 0 = PHONES */
     ui->io_cab_on_line    = 1;    /* 1 = ON */
-    ui->display_brightness= 80;   /* 80% */
+    ui->display_brightness= 100;  /* 100% */
     ui->display_auto_dim  = 0;    /* OFF: on the bench unit the 15 % soft-PWM dim looked black */
     ui->display_battery_pct = 1;  /* 1 = ON */
     ui->stomp_assign_key  = 0;
@@ -2049,6 +1904,8 @@ void pa_ui_sync_from_preset(pa_ui_ctx_t *ui, const pa_preset_t *pr) {
 }
 
 void pa_ui_load_preset(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, uint8_t idx) {
+    extern volatile uint8_t g_pa_synth_shed;
+    g_pa_synth_shed = 0u;                            /* preset load clears any overload shed */
     pa_preset_t pr;
     ui->preset_index = idx;
     ui->bank_group   = idx / 4u;
@@ -2209,6 +2066,7 @@ static void midi_slot_set(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, uint8_t slot, i
     ui->dirty = 1;
 }
 
+static pa_ui_ctx_t *s_rend_ui; static const pa_fx_chain_t *s_rend_chain; static const pa_cpu_meter_t *s_rend_meter;
 void pa_ui_midi_control(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, const pa_midi_ev_t *e) {
     if (!ui || !chain || !e) return;
     const int v = e->v;
@@ -2245,14 +2103,14 @@ void pa_ui_midi_control(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, const pa_midi_ev_
             const int db = midi_clamp((int)(((uint32_t)v * 24u + 8191u) / 16383u) - 12, -12, 12);
             ui->slot_bands_db[k] = (int8_t)db;
             pa_fx_chain_set_param(chain, PA_SLOT_EQ, k, (int32_t)(((int64_t)(db + 12) * PA_Q21_ONE) / 24));
-            ui->dirty = 1;
+            pa_ui_dirty_throttled(ui);
             break;
         }
         if (k >= get_slot_param_count(ui, slot)) break;                        /* the block has no such knob */
         const int32_t q = (int32_t)(((int64_t)midi_clamp(v, 0, 16383) * PA_Q21_ONE) / 16383);
         ui->slot_params[slot][k] = q;
         pa_fx_chain_set_param(chain, (pa_fx_slot_id_t)slot, k, q);
-        ui->dirty = 1;
+        pa_ui_dirty_throttled(ui);
         break; }
     case PA_MEV_TYPE: {
         const uint8_t slot = e->a;
@@ -2319,6 +2177,87 @@ void pa_ui_midi_control(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, const pa_midi_ev_
     case PA_MEV_SAVE: {
         const uint8_t target = e->a ? (uint8_t)midi_clamp(v, 0, (int)PA_PRESET_COUNT - 1) : ui->preset_index;
         (void)ui_save_current_to(ui, chain, target);
+        break; }
+    case PA_MEV_SYNTH_PARAM: {
+        extern volatile uint8_t g_pa_synth_shed;
+        g_pa_synth_shed = 0u;                        /* user MIDI tweak unsheds synth */
+        icarus_state_t *s = icarus_get_active();
+        if (!s && chain && chain->slots[PA_SLOT_SYNTH]) {
+            s = (icarus_state_t *)chain->slots[PA_SLOT_SYNTH]->state;
+        }
+        if (!s) {
+            s = icarus_create();
+            if (s && chain && chain->slots[PA_SLOT_SYNTH] && !chain->slots[PA_SLOT_SYNTH]->state) {
+                chain->slots[PA_SLOT_SYNTH]->state = s;
+            }
+        }
+        if (!s) break;
+        icarus_preset_t *p = &s->params;
+        int sync_routing = 0;
+        switch (e->a) {
+        case 0:  icarus_set_mode(s, (uint8_t)midi_clamp(v, 0, 3)); break;
+        case 1:  p->dist_mode = (uint8_t)midi_clamp(v, 0, 4); break;
+        case 2:  p->analog_drive = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 3:  p->input_gain = (float)midi_clamp(v, 50, 250) * 0.01f; break;
+        case 4:  p->pre_emphasis = v ? 1u : 0u; break;
+        case 5:  p->wave_a = (uint8_t)midi_clamp(v, 0, 2); break;
+        case 6:  p->pitch_a = (int8_t)(midi_clamp(v, 0, 48) - 24); break;
+        case 7:  p->level_a = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 8:  p->wave_b = (uint8_t)midi_clamp(v, 0, 2); break;
+        case 9:  p->pitch_b = (int8_t)(midi_clamp(v, 0, 48) - 24); break;
+        case 10: p->level_b = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 11: p->osc_mix = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 12: p->detune_cents = (float)midi_clamp(v, 0, 50); break;
+        case 13: p->fine_tune = (int8_t)(midi_clamp(v, 0, 100) - 50); break;
+        case 14: p->pulse_width = (float)midi_clamp(v, 5, 95) * 0.01f; break;
+        case 15: p->sub_mode = (uint8_t)midi_clamp(v, 0, 2); break;
+        case 16: p->sub_level = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 17: p->filter_mode = (uint8_t)midi_clamp(v, 0, 3); break;
+        case 18: p->cutoff_hz = (float)midi_clamp(v, 80, 16383); break;
+        case 19: p->resonance = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 20: p->env_amount = (float)(midi_clamp(v, 0, 200) - 100) * 0.01f; break;
+        case 21: p->key_tracking = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 22: p->filter_sat = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 23: p->env_attack_ms = (float)midi_clamp(v, 1, 2000); break;
+        case 24: p->env_decay_ms = (float)midi_clamp(v, 10, 3000); break;
+        case 25: p->env_sustain = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 26: p->env_release_ms = (float)midi_clamp(v, 10, 5000); break;
+        case 27: p->glide_ms = (float)midi_clamp(v, 0, 2000); break;
+        case 28: p->glide_legato = v ? 1u : 0u; break;
+        case 29: p->vib_rate_hz = (float)midi_clamp(v, 1, 120) * 0.1f; break;
+        case 30: p->vib_depth_cents = (float)midi_clamp(v, 0, 100); break;
+        case 31: p->vib_delay_ms = (float)midi_clamp(v, 0, 2000); break;
+        case 32: p->lfo_wave = (uint8_t)midi_clamp(v, 0, 4); break;
+        case 33: p->lfo_rate_hz = (float)midi_clamp(v, 1, 200) * 0.1f; break;
+        case 34: p->lfo_depth = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 35: p->lfo_dest = (uint8_t)midi_clamp(v, 0, 4); break;
+        case 36: p->guitar_level = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 37: p->analog_level = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 38: p->synth_level = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 39: p->master_level = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 40: p->stereo_width = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 41: p->nam_enable = v ? 1u : 0u; sync_routing = 1; break;
+        case 42: p->cab_enable = v ? 1u : 0u; sync_routing = 1; break;
+        case 43: p->gate_enable = v ? 1u : 0u; break;
+        case 44: p->expression = (float)midi_clamp(v, 0, 100) * 0.01f; break;
+        case 45: p->drift_cents = (float)midi_clamp(v, 0, 100) * 0.1f; break;
+        default: break;
+        }
+        icarus_apply_params(s);
+        s->live_cutoff_hz = p->cutoff_hz;
+        s->live_pwm       = p->pulse_width;
+        if (sync_routing) icarus_sync_chain_routing(s, chain);
+        /* Keep the 6 macro knobs in ui->slot_params[PA_SLOT_SYNTH] synced */
+        {
+            float k0 = sqrtf(midi_clamp((int)((p->cutoff_hz - 120.0f) * 10000.0f / 7880.0f), 0, 10000) * 0.0001f);
+            ui->slot_params[PA_SLOT_SYNTH][0] = (int32_t)(k0 * (float)PA_Q21_ONE);
+            ui->slot_params[PA_SLOT_SYNTH][1] = (int32_t)((p->resonance / 0.95f > 1.0f ? 1.0f : p->resonance / 0.95f) * (float)PA_Q21_ONE);
+            ui->slot_params[PA_SLOT_SYNTH][2] = (int32_t)((p->env_amount < 0.0f ? 0.0f : (p->env_amount > 1.0f ? 1.0f : p->env_amount)) * (float)PA_Q21_ONE);
+            ui->slot_params[PA_SLOT_SYNTH][3] = (int32_t)(p->synth_level * (float)PA_Q21_ONE);
+            ui->slot_params[PA_SLOT_SYNTH][4] = (int32_t)(p->analog_drive * (float)PA_Q21_ONE);
+            ui->slot_params[PA_SLOT_SYNTH][5] = (int32_t)((p->glide_ms / 400.0f > 1.0f ? 1.0f : p->glide_ms / 400.0f) * (float)PA_Q21_ONE);
+        }
+        pa_ui_dirty_throttled(ui);
         break; }
     default: break;
     }
@@ -2388,6 +2327,74 @@ uint32_t pa_ui_name_list(uint8_t kind, uint8_t start, uint8_t *out, uint32_t cap
      * out[4] = the first type a user can delete (the first stored capture / cabinet), so the editor needs no table of its own. */
     const uint32_t total = (kind == 0u) ? (uint32_t)(PA_STOCK_AMP_COUNT + pa_user_nam_get_count()) : (uint32_t)pa_cab_total_count();
     uint32_t n = 0;
+    if (kind == 2u) {                                         /* Icarus Synthesizer 64-byte state snapshot (cmd 81, kind 2) */
+        if (cap < 64u) return 0u;
+        memset(out, 0, 64u);
+        out[0] = 2u;
+        icarus_state_t *s = icarus_get_active();
+        if (!s && s_rend_chain && s_rend_chain->slots[PA_SLOT_SYNTH]) {
+            s = (icarus_state_t *)s_rend_chain->slots[PA_SLOT_SYNTH]->state;
+        }
+        if (!s) return 64u;
+        s->ui_ttl = 300u;
+        const icarus_preset_t *p = &s->params;
+        out[1] = s->enabled ? 1u : 0u;
+        out[2] = s->preset_index;
+        out[3] = p->mode;
+        out[4] = p->dist_mode;
+        out[5] = (uint8_t)midi_clamp((int)(p->analog_drive * 100.0f + 0.5f), 0, 100);
+        out[6] = (uint8_t)midi_clamp((int)(p->input_gain * 100.0f + 0.5f), 50, 250);
+        out[7] = p->pre_emphasis ? 1u : 0u;
+        out[8] = p->wave_a;
+        out[9] = (uint8_t)midi_clamp((int)p->pitch_a + 24, 0, 48);
+        out[10] = (uint8_t)midi_clamp((int)(p->level_a * 100.0f + 0.5f), 0, 100);
+        out[11] = p->wave_b;
+        out[12] = (uint8_t)midi_clamp((int)p->pitch_b + 24, 0, 48);
+        out[13] = (uint8_t)midi_clamp((int)(p->level_b * 100.0f + 0.5f), 0, 100);
+        out[14] = (uint8_t)midi_clamp((int)(p->osc_mix * 100.0f + 0.5f), 0, 100);
+        out[15] = (uint8_t)midi_clamp((int)(p->detune_cents + 0.5f), 0, 50);
+        out[16] = (uint8_t)midi_clamp((int)p->fine_tune + 50, 0, 100);
+        out[17] = (uint8_t)midi_clamp((int)(p->pulse_width * 100.0f + 0.5f), 5, 95);
+        out[18] = p->sub_mode;
+        out[19] = (uint8_t)midi_clamp((int)(p->sub_level * 100.0f + 0.5f), 0, 100);
+        out[20] = p->filter_mode;
+        { uint16_t fc = (uint16_t)midi_clamp((int)(p->cutoff_hz + 0.5f), 80, 18000); out[21] = (uint8_t)(fc & 0xFFu); out[22] = (uint8_t)(fc >> 8); }
+        out[23] = (uint8_t)midi_clamp((int)(p->resonance * 100.0f + 0.5f), 0, 100);
+        out[24] = (uint8_t)midi_clamp((int)(p->env_amount * 100.0f + 100.5f), 0, 200);
+        out[25] = (uint8_t)midi_clamp((int)(p->key_tracking * 100.0f + 0.5f), 0, 100);
+        out[26] = (uint8_t)midi_clamp((int)(p->filter_sat * 100.0f + 0.5f), 0, 100);
+        { uint16_t atk = (uint16_t)midi_clamp((int)(p->env_attack_ms + 0.5f), 1, 2000); out[27] = (uint8_t)(atk & 0xFFu); out[28] = (uint8_t)(atk >> 8); }
+        { uint16_t dec = (uint16_t)midi_clamp((int)(p->env_decay_ms + 0.5f), 10, 3000); out[29] = (uint8_t)(dec & 0xFFu); out[30] = (uint8_t)(dec >> 8); }
+        out[31] = (uint8_t)midi_clamp((int)(p->env_sustain * 100.0f + 0.5f), 0, 100);
+        { uint16_t rel = (uint16_t)midi_clamp((int)(p->env_release_ms + 0.5f), 10, 5000); out[32] = (uint8_t)(rel & 0xFFu); out[33] = (uint8_t)(rel >> 8); }
+        { uint16_t gld = (uint16_t)midi_clamp((int)(p->glide_ms + 0.5f), 0, 2000); out[34] = (uint8_t)(gld & 0xFFu); out[35] = (uint8_t)(gld >> 8); }
+        out[36] = p->glide_legato ? 1u : 0u;
+        out[37] = (uint8_t)midi_clamp((int)(p->vib_rate_hz * 10.0f + 0.5f), 1, 120);
+        out[38] = (uint8_t)midi_clamp((int)(p->vib_depth_cents + 0.5f), 0, 100);
+        { uint16_t vdl = (uint16_t)midi_clamp((int)(p->vib_delay_ms + 0.5f), 0, 2000); out[39] = (uint8_t)(vdl & 0xFFu); out[40] = (uint8_t)(vdl >> 8); }
+        out[41] = p->lfo_wave;
+        out[42] = (uint8_t)midi_clamp((int)(p->lfo_rate_hz * 10.0f + 0.5f), 1, 200);
+        out[43] = (uint8_t)midi_clamp((int)(p->lfo_depth * 100.0f + 0.5f), 0, 100);
+        out[44] = p->lfo_dest;
+        out[45] = (uint8_t)midi_clamp((int)(p->guitar_level * 100.0f + 0.5f), 0, 100);
+        out[46] = (uint8_t)midi_clamp((int)(p->analog_level * 100.0f + 0.5f), 0, 100);
+        out[47] = (uint8_t)midi_clamp((int)(p->synth_level * 100.0f + 0.5f), 0, 100);
+        out[48] = (uint8_t)midi_clamp((int)(p->master_level * 100.0f + 0.5f), 0, 100);
+        out[49] = (uint8_t)midi_clamp((int)(p->stereo_width * 100.0f + 0.5f), 0, 100);
+        out[50] = p->nam_enable ? 1u : 0u;
+        out[51] = p->cab_enable ? 1u : 0u;
+        out[52] = p->gate_enable ? 1u : 0u;
+        out[53] = (uint8_t)midi_clamp((int)(p->expression * 100.0f + 0.5f), 0, 100);
+        out[54] = (uint8_t)midi_clamp((int)(p->drift_cents * 10.0f + 0.5f), 0, 100);
+        { uint16_t pf = (uint16_t)midi_clamp((int)(s->pitch.frequency * 10.0f + 0.5f), 0, 65535); out[55] = (uint8_t)(pf & 0xFFu); out[56] = (uint8_t)(pf >> 8); }
+        out[57] = (uint8_t)((s->pitch.midi_note & 0x7Fu) | (s->pitch.valid ? 0x80u : 0u));
+        { uint16_t lfc = (uint16_t)midi_clamp((int)(s->live_cutoff_hz + 0.5f), 80, 18000); out[58] = (uint8_t)(lfc & 0xFFu); out[59] = (uint8_t)(lfc >> 8); }
+        out[60] = (uint8_t)midi_clamp((int)(s->live_env_level * 100.0f + 0.5f), 0, 100);
+        out[61] = (uint8_t)midi_clamp((int)(s->live_peak_gtr * 100.0f + 0.5f), 0, 100);
+        out[62] = (uint8_t)midi_clamp((int)(s->live_peak_osc * 100.0f + 0.5f), 0, 100);
+        out[63] = (uint8_t)midi_clamp((int)(s->live_peak_out * 100.0f + 0.5f), 0, 100);
+        return 64u;
+    }
     if (kind == 255u) {                                       /* the build code, as text: [255, 0, 0, length, 0] + the characters (the editor shows it) */
         const char *bc = PA_BUILD_CODE; uint32_t l = 0; while (bc[l] && l < 40u) l++;
         out[0] = 255u; out[1] = 0u; out[2] = 0u; out[3] = (uint8_t)l; out[4] = (uint8_t)PA_PACK_NUM;
@@ -2485,33 +2492,28 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
             return;
         }
 
-        /* HOME & VOL- -> Enter / Leave Groove Station */
+        /* HOME & VOL- -> Groove Station disabled in Icarus */
         if ((buttons_pressed & PA_COMBO_DRUMS) == PA_COMBO_DRUMS) {
-            if (ui->view == PA_UI_VIEW_DRUMS) {
-                ui->view = PA_UI_VIEW_MAIN_GRID;
-            } else {
-                ui->prev_view = ui->view;
-                ui->view = PA_UI_VIEW_DRUMS;
-            }
-            ui->dirty = 1;
             return;
         }
 
-        /* HOME & VOL+ -> Enter / Leave Project Alpha Guitar Synthesizer */
+        /* HOME & VOL+ -> Enter / Leave Icarus Guitar Synthesizer */
         if ((buttons_pressed & PA_COMBO_CHAIN) == PA_COMBO_CHAIN) {
-            if (ui->view == PA_UI_VIEW_PROJECT_ALPHA) {
-                alpha_ui_exit(ui, chain);
+            if (ui->view == PA_UI_VIEW_ICARUS_SYNTH) {
+                icarus_ui_exit(ui, chain);
             } else {
                 ui->prev_view = ui->view;
-                alpha_ui_enter(ui, chain);
+                icarus_ui_enter(ui, chain);
             }
             return;
         }
     }
 
-    /* Project Alpha Synthesizer dedicated UI input dispatch */
-    if (ui->view == PA_UI_VIEW_PROJECT_ALPHA) {
-        alpha_ui_handle_inputs(ui, chain, buttons_pressed, enc_delta);
+    /* Icarus Synthesizer dedicated UI input dispatch */
+    if (ui->view == PA_UI_VIEW_ICARUS_SYNTH) {
+        PA_CP(0x7D);                                         /* into the Icarus synth input handler */
+        icarus_ui_handle_inputs(ui, chain, buttons_pressed, enc_delta);
+        PA_CP(0x7E);
         return;
     }
 
@@ -2686,8 +2688,8 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
 
     /* 2. Moving Mode */
     if (ui->view == PA_UI_VIEW_MOVING) {
-        /* VOL- cancels and restores position */
-        if (buttons_pressed & PA_BTN_VOL_MINUS) {
+        /* VOL- or HOME cancels and restores position */
+        if (buttons_pressed & (PA_BTN_VOL_MINUS | PA_BTN_HOME)) {
             if (ui->moving_orig_idx < 8) {
                 uint8_t cur_idx = ui->cursor_slot_idx;
                 uint8_t orig_idx = ui->moving_orig_idx;
@@ -2760,9 +2762,9 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
         }
 
         uint8_t slot = (chain && ui->cursor_slot_idx < PA_ACTIVE_SLOT_COUNT) ? chain->slot_order[ui->cursor_slot_idx] : PA_SLOT_AMP;
-        if (slot == PA_SLOT_SYNTH && ui->view == PA_UI_VIEW_PARAM_EDIT) {   /* the SYNTH block opens the full Project Alpha laboratory */
+        if (slot == PA_SLOT_SYNTH && ui->view == PA_UI_VIEW_PARAM_EDIT) {   /* the SYNTH block opens the full Icarus laboratory */
             ui->prev_view = PA_UI_VIEW_MAIN_GRID;
-            alpha_ui_enter(ui, chain);
+            icarus_ui_enter(ui, chain);
             return;
         }
         uint8_t nparams = get_slot_param_count(ui, slot);
@@ -2774,10 +2776,10 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
              * buttons alone. The PARA encoder moves to the next setting,
              * and so does VOL+ (VOL- is the universal Back). */
             if (buttons_pressed & PA_BTN_LEFT) {
-                if (block_editor_adjust(ui, chain, slot, -1)) ui->dirty = 1;
+                if (block_editor_adjust(ui, chain, slot, -1)) { if (ui->editor_cursor < 0) ui->dirty = 1; else pa_ui_dirty_throttled(ui); }
             }
             if (buttons_pressed & PA_BTN_RIGHT) {
-                if (block_editor_adjust(ui, chain, slot, +1)) ui->dirty = 1;
+                if (block_editor_adjust(ui, chain, slot, +1)) { if (ui->editor_cursor < 0) ui->dirty = 1; else pa_ui_dirty_throttled(ui); }
             }
             if (buttons_pressed & PA_BTN_VOL_PLUS) {
                 int cur = (int)ui->editor_cursor + 1;
@@ -2822,7 +2824,7 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
             if (buttons_pressed & PA_BTN_LEFT)  d--;
             if (buttons_pressed & PA_BTN_RIGHT) d++;
             if (d != 0) {
-                if (block_editor_adjust(ui, chain, slot, d)) ui->dirty = 1;
+                if (block_editor_adjust(ui, chain, slot, d)) { if (ui->editor_cursor < 0) ui->dirty = 1; else pa_ui_dirty_throttled(ui); }
             }
             /* PARA click: exit edit mode, resume < > navigation */
             if (buttons_pressed & PA_BTN_PARA_CLICK) {
@@ -2951,47 +2953,10 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
         return;
     }
 
-    /* 7. Groove Station Screen
-     *
-     * The redesign's controls: VOL- / VOL+ is the drum volume (one segment of
-     * 10 % per press), < > is the style (40 of them, wrapping), the PARA knob
-     * is the tempo and a PARA press is play / stop. There is no drums on /
-     * off and no click mode: the metronome patterns are gone from the UI. */
+    /* 7. Groove Station Screen (removed) */
     if (ui->view == PA_UI_VIEW_DRUMS) {
-        /* VOL- / VOL+ adjusts dedicated Drum Volume (0..100%) */
-        if (buttons_pressed & PA_BTN_VOL_MINUS) {
-            ui->drum_volume = (ui->drum_volume >= 10u) ? (uint8_t)(ui->drum_volume - 10u) : 0u;
-            ui->dirty = 1;
-        }
-        if (buttons_pressed & PA_BTN_VOL_PLUS) {
-            ui->drum_volume = (ui->drum_volume <= 90u) ? (uint8_t)(ui->drum_volume + 10u) : 100u;
-            ui->dirty = 1;
-        }
-        /* < > = Previous / next style (40 of them, wrapping) */
-        if (buttons_pressed & PA_BTN_LEFT) {
-            ui->drum_pattern = (ui->drum_pattern == 0) ? (PA_DRUM_GROOVE_STYLE_COUNT - 1u)
-                                                        : (uint8_t)(ui->drum_pattern - 1u);
-            pa_ui_mark_settings_dirty(ui);
-            ui->dirty = 1;
-        }
-        if (buttons_pressed & PA_BTN_RIGHT) {
-            ui->drum_pattern = (uint8_t)((ui->drum_pattern + 1u) % PA_DRUM_GROOVE_STYLE_COUNT);
-            pa_ui_mark_settings_dirty(ui);
-            ui->dirty = 1;
-        }
-        /* PARA turn = BPM 40-240 */
-        if (enc_delta != 0) {
-            int bpm = (int)ui->drum_bpm + enc_delta;
-            if (bpm < 40)  bpm = 40;
-            if (bpm > 240) bpm = 240;
-            ui->drum_bpm = (uint16_t)bpm;
-            ui->dirty = 1;
-        }
-        /* PARA click = Play / Stop */
-        if (buttons_pressed & PA_BTN_PARA_CLICK) {
-            ui->drum_playing ^= 1;
-            ui->dirty = 1;
-        }
+        ui->view = PA_UI_VIEW_MAIN_GRID;
+        ui->dirty = 1;
         return;
     }
 
@@ -3081,10 +3046,6 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
                 ui->prev_view = PA_UI_VIEW_SETTINGS;
                 ui->view = PA_UI_VIEW_SYS_INFO;
                 ui->sys_cursor = 0;
-            } else if (ui->settings_cursor == 11) {
-                /* Project Alpha Guitar Synthesizer */
-                ui->prev_view = PA_UI_VIEW_SETTINGS;
-                alpha_ui_enter(ui, chain);
             }
             ui->dirty = 1;
         }
@@ -3175,12 +3136,12 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
         }
 
         if (ui->edit_mode == 0) {
-            /* Hover mode: PARA knob and < > buttons step between rows 0..4 */
+            /* Hover mode: PARA knob and < > buttons step between rows 0..3 */
             {
                 int dd = enc_delta;
                 if (buttons_pressed & PA_BTN_LEFT)  dd--;
                 if (buttons_pressed & PA_BTN_RIGHT) dd++;
-                if (dd != 0) { ui->sub_cursor = menu_wrap(ui->sub_cursor, dd, 5); ui->dirty = 1; }        /* wraps at both ends */
+                if (dd != 0) { ui->sub_cursor = menu_wrap(ui->sub_cursor, dd, 4); ui->dirty = 1; }        /* wraps at both ends */
             }
             if (buttons_pressed & PA_BTN_PARA_CLICK) {
                 if (ui->sub_cursor == 0) {
@@ -3188,10 +3149,8 @@ void pa_ui_handle_inputs(pa_ui_ctx_t *ui, pa_fx_chain_t *chain,
                 } else if (ui->sub_cursor == 1) {
                     ui->display_auto_dim = (uint8_t)((ui->display_auto_dim + 1u) % 4u);
                 } else if (ui->sub_cursor == 2) {
-                    ui->home_view_mode ^= 1;
-                } else if (ui->sub_cursor == 3) {
                     ui->display_battery_pct ^= 1;
-                } else if (ui->sub_cursor == 4) {
+                } else if (ui->sub_cursor == 3) {
                     ui->theme ^= 1;                       /* IMP-06: ONYX <-> HIGH CONTRAST */
                     pa_ui_set_theme(ui->theme);
                 }
@@ -3393,7 +3352,6 @@ static uint32_t ui_draw_budget_us(void) {
 #if !(defined(PA_EMU_DLL) || defined(PA_HOST_SIM) || defined(__wasm__) || defined(__EMSCRIPTEN__))
 extern void st7735s_present_abort(void);
 #endif
-static pa_ui_ctx_t *s_rend_ui; static const pa_fx_chain_t *s_rend_chain; static const pa_cpu_meter_t *s_rend_meter;
 void pa_ui_render_pass(void) {      /* from the main loop, between UI ticks: a frame in progress goes on (or a new one starts) without waiting for the next tick */
     if (s_rend_ui) pa_ui_render(s_rend_ui, s_rend_chain, s_rend_meter);
 }
@@ -3510,8 +3468,8 @@ static void render_frame(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, const pa_c
         case PA_UI_VIEW_STOMP_ASSIGN:
             render_stomp_assign(ui);
             break;
-        case PA_UI_VIEW_PROJECT_ALPHA:
-            alpha_ui_render(ui, chain);
+        case PA_UI_VIEW_ICARUS_SYNTH:
+            icarus_ui_render(ui, chain);
             break;
         default:
             render_home_header(ui);
@@ -3520,7 +3478,7 @@ static void render_frame(pa_ui_ctx_t *ui, const pa_fx_chain_t *chain, const pa_c
     }
 
     /* 3. Render 1-second Volume Popup Overlay if active outside Home */
-    if (ui->show_vol_popup && ui->view != PA_UI_VIEW_MAIN_GRID && ui->view != PA_UI_VIEW_DRUMS && ui->view != PA_UI_VIEW_PROJECT_ALPHA) {
+    if (ui->show_vol_popup && ui->view != PA_UI_VIEW_MAIN_GRID && ui->view != PA_UI_VIEW_DRUMS && ui->view != PA_UI_VIEW_ICARUS_SYNTH) {
         render_volume_popup(ui);
     }
 

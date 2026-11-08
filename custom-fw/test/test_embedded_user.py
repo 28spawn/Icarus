@@ -22,13 +22,9 @@ inc = tmp / "fixture.inc"
 r = subprocess.run([sys.executable, str(FW / "tools" / "pa_import.py"), "--nam-dir", str(tmp / "nam"), "--cab-dir", str(tmp / "cab"), "--out", str(inc)])
 if r.returncode: sys.exit("pa_import.py failed")
 exe = tmp / "t.exe"
-srcs = ["test/test_embedded_user.c",
-        "src/dsp/activation.c", "src/dsp/hw_accel.c", "src/dsp/pa_biquad.c", "src/dsp/tuner.c", "src/dsp/drums_synth.c", "src/nam/nam_engine.c", "src/nam/pa_wavenet.c",
-        "src/fx/fx_graph.c", "src/fx/fx_dynamics.c", "src/fx/fx_drive.c", "src/fx/fx_cab_ir.c", "src/fx/fft_conv.c", "src/fx/fx_eq.c", "src/fx/fx_mod.c",
-        "src/fx/fx_delay.c", "src/fx/fx_reverb.c",
-        "src/sys/cpu_meter.c", "src/sys/preset.c", "src/sys/settings.c", "src/sys/pa_bond.c", "src/sys/pa_pool.c", "src/sys/pa_user_nam.c", "src/sys/pa_user_cab.c", "src/sys/stock_assets.c",
-        "src/sys/pa_audio_core.c", "src/sys/pa_input.c", "src/sys/pa_diag.c", "src/sys/pa_ota.c",
-        "src/board/spi_nor.c", "src/board/ui_app.c", "src/board/usb_ble.c", "src/board/ble_midi.c"]
+sys.path.insert(0, str(FW / "tools"))
+import sources
+srcs = ["test/test_embedded_user.c"] + list(sources.sources_for("host_full"))
 cmd = ["clang", "-O1", "-Wall", "-Wextra", "-Wno-unused-function", f"-I{FW/'include'}", "-DPA_HOST_SIM=1", "-DPA_USER_EMBEDDED_FORCE=1",
        f"-DPA_USER_EMBEDDED_INC=\"{inc.as_posix()}\"", *[str(FW / s) for s in srcs], "-lm", "-o", str(exe)]
 print(" ".join(cmd[:3]), "...")

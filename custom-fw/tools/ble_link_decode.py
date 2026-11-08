@@ -37,7 +37,7 @@ def pdu_name(ch, b):
 
 
 def ll_detail(ch, b, evt):
-    """what the kept octets of an LL control PDU mean (see the PA-MOD note in third_party/optimist_ble/README.md for the packing of CONNECTION_UPDATE_IND)"""
+    """what the kept octets of an LL control PDU mean (see the ICARUS note in third_party/optimist_ble/README.md for the packing of CONNECTION_UPDATE_IND)"""
     if (ch & 0x7F) != 4 or not b:
         return ""
     op = b[0]

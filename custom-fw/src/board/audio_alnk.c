@@ -68,6 +68,11 @@ typedef struct {
     uint32_t isr_entries, isr_last_cyc, isr_max_cyc, overruns, auto_bypass, magic;
 } pa_bench_stats_t;
 #define PA_BENCH_STATS ((volatile pa_bench_stats_t *)(uintptr_t)0x01C7C250u)
+/* Where the CPU was. SRAM 0x01C7C900, 16 words: [0] magic 'PCRG', [1..3] the frame the audio interrupt interrupted on ITS LAST ENTRY (written by isr_alnk0 in
+ * entry.S: reti = the PC, rets, psr), [4] how many samples were taken, [5..7] the same three words captured at the moment the freeze detector fired,
+ * [8..15] a ring of the interrupted PC taken every 1024 blocks (1.5 s): where the main loop spends its time, and, once it is stuck, the same address
+ * over and over. tools/jl_ram_read.py synth looks the addresses up in the ELF. */
+#define PA_PC_BLOCK ((volatile uint32_t *)(uintptr_t)0x01C7C900u)
 /* The auto-bypass tripwire. It sat at 1.35 ms; the WaveNet amp with a cabinet, delay and reverb keeps this interrupt at 1.36-1.42 ms (core 0 waits for core 1 inside it),
  * which is inside the 1.451 ms block, so 8 such blocks in a row muted the NAM 60 ms after it was selected. A block that really overruns is over 1.451 ms; 1.44 leaves 11 us. */
 #define PA_ISR_BUDGET_CYC (1440u * 24u)        /* TIMER4 @ 24 MHz */
@@ -92,8 +97,8 @@ volatile uint32_t g_pa_isr_avg_us, g_pa_isr_peak_us;
 extern volatile uint8_t g_pa_cab_parts_limit;     /* fx_cab_ir.c */
 extern volatile uint8_t g_pa_stereo_allow;        /* fx_graph.c: 0 = the stereo cabinet / EQ run mono */
 extern volatile uint8_t g_pa_cab_stereo;          /* fx_graph.c: 1 = this block's cabinet ran in stereo */
-extern volatile uint8_t g_pa_synth_shed;          /* alpha.c: 1 = Project Alpha is shed to a dry pass-through (overload protection) */
-extern int alpha_is_active(void);                 /* alpha.c */
+extern volatile uint8_t g_pa_synth_shed;          /* icarus.c: 1 = Icarus Synth is shed to a dry pass-through (overload protection) */
+extern int icarus_is_active(void);                 /* icarus.c */
 extern volatile uint8_t g_pa_gov_level;           /* pa_audio_core.c: the load governor's level, 0..2 (2 = the cabinet's partitions are cut); the overload popup reads it */
 volatile uint8_t g_pa_gov_swap;                    /* set by the audio thread when it applied a swap in this block: the governor does not count that block (a swap stalls ~0.8 ms on purpose) */
 
@@ -135,14 +140,14 @@ void pa_alnk0_isr_c(void) {
     }
     /* SYNTH SHED. The auto-bypass above needs eight overruns IN A ROW; a spiky load (every second or third block late) never trips it
      * but still starves the main loop until the unit freezes. So count the late blocks in a window of 64 and, when 8 or more ran past
-     * the budget while Project Alpha is on, drop the synth to a dry pass-through (alpha.c) before anything else. Preset/model swaps
+     * the budget while Icarus Synth is on, drop the synth to a dry pass-through (icarus.c) before anything else. Preset/model swaps
      * (g_pa_gov_swap) are not counted: they stall one block on purpose. */
     if (dt > 200u * 24u && !g_pa_gov_swap) {
         static uint32_t s_w_blocks, s_w_over;
         s_w_blocks++;
         if (dt > PA_ISR_BUDGET_CYC) s_w_over++;
         if (s_w_blocks >= 64u) {
-            if (s_w_over >= 8u && alpha_is_active() && !g_pa_synth_shed) { g_pa_synth_shed = 1u; pa_evlog(PA_EV_BYPASS, dt / 24u, 1u); }
+            if (s_w_over >= 8u && icarus_is_active() && !g_pa_synth_shed) { g_pa_synth_shed = 1u; pa_evlog(PA_EV_SYNTH_SHED, 1u, s_w_over); }
             s_w_blocks = 0u; s_w_over = 0u;
         }
     }
@@ -216,14 +221,46 @@ void pa_alnk0_isr_c(void) {
             static uint32_t s_blk, s_last_iters, s_stale;
             if ((++s_blk & 1023u) == 0u) {
                 const uint32_t it = g_main_iters;
+                PA_PC_BLOCK[8u + (PA_PC_BLOCK[4] & 7u)] = PA_PC_BLOCK[1];       /* the interrupted PC, once per 1.5 s */
+                PA_PC_BLOCK[4] = PA_PC_BLOCK[4] + 1u;
                 if (it != 0u && it == s_last_iters) {
                     if (++s_stale >= 3u) {
+                        PA_PC_BLOCK[5] = PA_PC_BLOCK[1]; PA_PC_BLOCK[6] = PA_PC_BLOCK[2]; PA_PC_BLOCK[7] = PA_PC_BLOCK[3];   /* what the CPU was doing, right now */
                         pa_evlog(PA_EV_FREEZE, 1u, it);
                         *(volatile uint32_t *)(uintptr_t)0x01C7C3F0u = 0x52455343u;   /* one-shot mark: the boot after the readout carries on */
                         rc_recover_uboot();
                     }
                 } else s_stale = 0u;
                 s_last_iters = it;
+            }
+        }
+        {   /* SYNTH SHED, 2nd rule. The late-block rule above needs blocks over 1.44 ms; a unit can sit at 95-98 % of the block (longest 1,426 of 1,451 us in
+             * the bench readout) with none of them late, starve the main loop until a redraw takes seconds, and trip the freeze detector. The load governor has
+             * already cut the cabinet at level 2: if it is STILL there after ~3 s (2,048 blocks) the synth, the biggest optional load, goes dry. */
+            static uint16_t s_lv2_blocks;
+            static uint16_t s_shed_calm_blocks;
+            if (s_level >= 2u) { if (s_lv2_blocks < 65535u) s_lv2_blocks++; } else s_lv2_blocks = 0u;
+            if (s_lv2_blocks >= 2048u && icarus_is_active() && !g_pa_synth_shed) {
+                g_pa_synth_shed = 1u;
+                pa_evlog(PA_EV_SYNTH_SHED, 2u, (uint32_t)s_ema / 24u);
+                s_lv2_blocks = 0u;
+                s_shed_calm_blocks = 0u;
+            }
+            /* Auto-recovery: when the load governor has returned to level 0 (calm) and stayed
+             * calm under 1000 us for ~2.5 s (1800 blocks), unshed the synth so the instrument
+             * recovers gracefully without requiring a power cycle or manual menu cycling. */
+            if (g_pa_synth_shed) {
+                if (s_level == 0u && s_ema < (int32_t)(1000u * 24u)) {
+                    if (++s_shed_calm_blocks >= 1800u) {
+                        g_pa_synth_shed = 0u;
+                        pa_evlog(PA_EV_SYNTH_SHED, 0u, (uint32_t)s_ema / 24u);
+                        s_shed_calm_blocks = 0u;
+                    }
+                } else {
+                    s_shed_calm_blocks = 0u;
+                }
+            } else {
+                s_shed_calm_blocks = 0u;
             }
         }
         g_pa_gov_level = s_level;
@@ -292,6 +329,10 @@ void pa_audio_init(pa_audio_block_cb_t cb) {
         st->isr_entries = 0u; st->isr_last_cyc = 0u; st->isr_max_cyc = 0u;
         st->overruns = 0u; st->auto_bypass = 0u; st->magic = 0x53544154u; }
     for (uint32_t i = 0; i < 32u; i++) ((volatile uint32_t *)(uintptr_t)0x01C7C500u)[i] = 0u;   /* per-slot timing, see fx_graph.c */
+    for (uint32_t i = 0; i < 16u; i++) PA_PC_BLOCK[i] = 0u;                                     /* the interrupted-PC block (above) */
+    for (uint32_t i = 0; i < 16u; i++) ((volatile uint32_t *)(uintptr_t)0x01C7C5C0u)[i] = 0u;     /* the main-loop heartbeat (pa_audio_core.c) */
+    for (uint32_t i = 0; i < 32u; i++) ((volatile uint32_t *)(uintptr_t)0x01C7C980u)[i] = 0u;     /* every diagnostic crumb 0x01C7C980..0x01C7C9FF (swap / flash / synth stage / pitch / timer PC): known values from the first instruction, not left-over SRAM */
+    PA_PC_BLOCK[0] = 0x47524350u;                                                               /* 'PCRG' */
     for (uint32_t i = 0; i < 8u; i++) ((volatile uint32_t *)(uintptr_t)0x01C7C660u)[i] = 0u;    /* GRU step profile, see nam_engine.c */
 #endif
     for (uint32_t i = 0; i < PA_ALNK_DMA_NOMINAL * PA_ALNK_DMA_SLACK; i++) {

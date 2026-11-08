@@ -31,15 +31,14 @@ redistributed here.
 ## Factory presets and stock amp/cab content
 custom-fw/src/sys/factory_presets.inc is an original, independently authored 40-preset bank (original names and values; no vendor preset data). Stock amplifier models and cabinet impulse responses are **never** embedded in the firmware image, the repository or any release: they are read at run time, read-only, from the user's own device flash partition (0x0BF000) by an independent reader written for interoperability (src/sys/stock_assets.c). Updates never erase or write that partition (pa_flash_rw_ok(), onyx_loader.c). With no such partition the firmware uses neutral synthetic placeholders. Never share or upload your factory partition.
 
-## Third-Party Datasets & Audio Assets
-The emulator and WASM workbench include clean guitar direct input (DI) audio test samples adapted from the open **GuitarSet** dataset:
-- **GuitarSet**: A Dataset for Guitar Transcription (Qingyang Xi, Rachel M. Bittner, Johan Pauwels, Xuzhou Ye, and Juan P. Bello).
-- **Source**: Zenodo Record 3371780 (`https://zenodo.org/records/3371780`).
-- **License**: Creative Commons Attribution 4.0 International (**CC-BY 4.0**).
-- **Usage**: Used for offline and real-time auditioning of dynamics, tone stacks, amplifier neural models, and cabinet impulse responses in `custom-fw/emu/samples/`.
+## Audio Test Assets & Dry DI Captures
+The desktop emulator and test benches include authentic clean guitar direct input (DI) dry audio captures:
+- **Dry DI Captures**: 15 clean electric guitar dry DI performance recordings (chords, licks, riffs) in `custom-fw/emu/samples/` provided courtesy of **Jonas Hemmersbach**.
+- **Usage**: Used for offline and real-time auditioning of dynamics, tone stacks, amplifier neural models, and cabinet impulse responses.
+- **Procedural Phrases**: Additional synthetic plucked guitar/bass phrases procedurally generated via Karplus-Strong physical modeling (`custom-fw/tools/gen_test_audio.py`).
 
 ## Bluetooth LE stack (from Optimist) — third-party code, imported with our marked changes
-The BLE-MIDI stack for the AC791N / WL82 radio in `custom-fw/third_party/optimist_ble/` is **not ours**. We changed it in a few places, every one marked `PA-MOD` in the source: `src/ble_hw_wl82.c`, `src/ble_ll.c`, `src/ble_smp.c`, `src/pa_prof.h`, `hal/fm1_ble_rf.h` (and the note in its `README.md`); the changes are published under the same terms as the files. It comes from
+The BLE-MIDI stack for the AC791N / WL82 radio in `custom-fw/third_party/optimist_ble/` is **not ours**. We changed it in a few places for hardware integration: `src/ble_hw_wl82.c`, `src/ble_ll.c`, `src/ble_smp.c`, `src/pa_prof.h`, `hal/fm1_ble_rf.h` (and the note in its `README.md`); the changes are published under the same terms as the files. It comes from
 **Optimist**, an open firmware platform for the M-VAVE FM-1 (<https://github.com/w0ts/optimist>), imported verbatim from commit
 `fcdc4881e8788365c62ea8be7fa11b4d82966bac` (pinned in `UPSTREAM-COMMIT.txt`; every file keeps its upstream `SPDX-License-Identifier` header).
 - **Credit.** Optimist's own Bluetooth code (`src/`, `hal/fm1_ble.h`, `hal/fm1_ble_rf.h`, the `tests/ble_*` and the `docs/`) was written for Optimist by
@@ -52,21 +51,21 @@ The BLE-MIDI stack for the AC791N / WL82 radio in `custom-fw/third_party/optimis
 - **Provenance claim (Optimist's, not verified by us).** The stack and driver were written from the Bluetooth Core Specification (v5.x, LE 1M), the MIDI Association's
   "MIDI over Bluetooth Low Energy" 1.0, and hardware register specifications; no vendor code was copied.
 - **Not imported:** Optimist's classic Bluetooth (A2DP source) stack, its UI, storage and the Felucca/SLOOP parts (`midi_ble.c`, the pages).
-- **Our reading of the licences (not legal advice).** The imported files stay under their own headers (`GPL-3.0-only OR MPL-2.0`, both options compatible with this project's `GPL-3.0-only` license); our changes to them are marked `PA-MOD` and published under the same terms. Anything we write around them is `GPL-3.0-only`.
+- **Our reading of the licences (not legal advice).** The imported files stay under their own headers (`GPL-3.0-only OR MPL-2.0`, both options compatible with this project's `GPL-3.0-only` license); our changes to them are published under the same terms. Anything we write around them is `GPL-3.0-only`.
 
 ## Build
 `custom-fw/` builds against the JieLi AC79 SDK + toolchain (download links above); see
 `custom-fw/tools/pack.sh` and `custom-fw/README.md`.
 
 ## License
-This project's original source code, firmware application layer, and tools are distributed under the terms of the **GNU General Public License v3.0 only** (`SPDX-License-Identifier: GPL-3.0-only`), with file-level `MPL-2.0` components (`custom-fw/third_party/pendel_loader/`, `custom-fw/loader/onyx_loader.c`, `custom-fw/src/sys/pa_ota_session.c`) and `GPL-3.0-only OR MPL-2.0` components (`custom-fw/third_party/optimist_ble/`) keeping their respective upstream headers. See the root [LICENSE](LICENSE) file for the full GPL-3.0 license text.
+This project's original source code, firmware application layer, and tools are distributed under the terms of the **GNU General Public License v3.0 only** (`SPDX-License-Identifier: GPL-3.0-only`), with file-level `MPL-2.0` components (`custom-fw/third_party/pendel_loader/`, `custom-fw/loader/onyx_loader.c`, `custom-fw/src/sys/pa_ota_session.c`) and `GPL-3.0-only OR MPL-2.0` components (`custom-fw/third_party/optimist_ble/`) keeping their respective upstream headers. See the root [LICENSE](LICENSE) file for the full GPL-3.0 license text. See [LICENSING.md](LICENSING.md) for the complete audited third-party provenance table, upstream sources, and the build engineering journey.
 
 ## Disclaimer
 Provided as-is, for research and interoperability. Flashing custom firmware is at your own risk and may
 void warranties or brick the device. All trademarks (including M-VAVE, Donner, JieLi, and TONE3000) belong to their respective owners; this project is an independent interoperability and research effort and is not affiliated with or endorsed by M-VAVE, Donner, JieLi, or TONE3000.
 
-## The Onyx update loader and the release package - third-party code and files
-The release package (`custom-fw/release/Onyx-<pack>/`, built by `custom-fw/build.ps1`) is built from scratch by `custom-fw/tools/onyx_pkg_make.py` and contains **no M-VAVE firmware**: only our own app, an update loader, and three files of
+## The Icarus update loader and the release package - third-party code and files
+The release package (`custom-fw/release/Icarus-<ver>/`, built by `custom-fw/build.ps1`) is built from scratch by `custom-fw/tools/onyx_pkg_make.py` and contains **no M-VAVE firmware**: only our own app, an update loader, and three files of
 the public JieLi AC79 SDK. The package builder (`tools/onyx_pkg_make.py`, `tools/lz4blk.py`) and the layout of the package are taken from the **Pendel** project (<https://github.com/hugelton/Pendel>, `tools/pa_pkg_make.py`,
 GPL-3.0-only, (C) 2026 Leo Kuroshita (@kurogedelic), Hugelton Instruments), which builds its own Pocket AMP packages the same way; they stay GPL-3.0-only here, like the rest of this repository.
 - **The update loader and the firmware's side of the vendor's MIDI update.** `custom-fw/third_party/pendel_loader/` is the **pendel-bsp** hardware layer (<https://github.com/hugelton/pendel-bsp>), **MPL-2.0**, (C) 2026 Leo Kuroshita, Hugelton

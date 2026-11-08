@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdint.h>
 
+#include "pa_config.h"
 #include "pa_sysex.h"
 
 /* ---- the stubs sysex.c needs --------------------------------------------- */
@@ -127,7 +128,9 @@ int main(void) {
             check(strstr(text, "version=") != NULL,    "the record has version=");
             check(strstr(text, "DONNER Pocket AMP") != NULL,
                   "the name is one the editor matches (\"DONNER Pocket AMP\")");
-            check(strstr(text, "version=105") != NULL, "the version is 105 (PA_FW_VERSION: shown as 1.05, below the stock's 1.05)");
+            char exp_ver[32];
+            snprintf(exp_ver, sizeof(exp_ver), "version=%u", (unsigned)PA_FW_VERSION);
+            check(strstr(text, exp_ver) != NULL, "the version matches PA_FW_VERSION");
         }
     }
 

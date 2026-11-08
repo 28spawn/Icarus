@@ -111,7 +111,7 @@ def show_usb_tx(rom: Rom):
 
 def show_slots(rom: Rom, compact: bool = False):
     w = words(rom.read(0x01C7C500, 128))
-    names = ["DYN", "DRV", "AMP", "CAB", "EQ", "MOD", "DLY", "REV"]
+    names = ["DYN", "SYNTH", "AMP", "CAB", "EQ", "syn:front", "syn:engines", "syn:back"]   # rows 5-7 are the synth's stage timers (alpha.c): front = gate, conditioning, pitch feed, envelopes; engines = analog stage + oscillators + filter; back = mixer, output gate, meters, scope. SYNTH (row 1) is the whole block.
     print("measured time per effect slot (SRAM 0x01C7C500; budget per 64-sample block = 1451 us):")
     print("  slot   calls   avg us   max us   last us")
     for i, n in enumerate(names):
@@ -862,8 +862,9 @@ def show_reset_cause(rom: Rom):
         print("reset record: none (the last boot did not go to the download mode through the freeze rescue, or a later boot reached the main loop)")
         return
     src = w[0] & 0xFF
-    print(f"RESET RECORD: the freeze rescue found the chip's reset-source register P33[0x12] = {src:#04x} when it took the unit to the download mode; "
-          f"(see the checkpoints line for where the main loop and the audio interrupt were)")
+    print(f"RESET RECORD: the unit was taken to the download mode (reset-source register P33[0x12] = {src:#04x}). That alone does NOT mean it froze: the same path is used by the "
+          f"deliberate button-combo hold, the auto-return timer and the freeze detector. A freeze leaves a FREEZE event in the log and a captured PC in the 'where the CPU was' block; "
+          f"without them the unit was running when it was sent here.")
     print("  (known values so far: 0x01 = a power-on; 0x04 = a boot after our own reset into the download mode. Anything else is the cause of the reset we are hunting.)")
 
 
@@ -1003,9 +1004,9 @@ def show_stack(rom: Rom):
 
 def show_cp(rom: Rom):
     w = words(rom.read(0x01C7C3F0, 16))
-    print(f"checkpoints: rescue mark {'SET (this boot ended through the one-shot rescue)' if w[0] == 0x52455343 else 'clear'}; "
-          f"main loop last at {w[1]:#x}{'' if w[1] < 0x100 else ' (garbage: no marker written)'}; audio interrupt last step {w[2]:#x} (5 = it finished)")
-    print("  main-loop markers: 0x10 loop head, 0x12 before the UI tick, 0x20/0x21 around the battery poll, 0x22 watchdog fed, 0x50-0x52 audio-core tick, 0x71-0x75 inside the SARADC reader")
+    print(f"checkpoints: download-mode mark {'SET (this boot ended through rc_recover_uboot: a deliberate combo, the auto-return OR a freeze - see the PC block and the FREEZE event to tell which)' if w[0] == 0x52455343 else 'clear'}; "
+          f"main loop last at {w[1]:#x}{'' if w[1] < 0x100 else ' (garbage: no marker written)'}; last accelerator-job step of the audio thread {w[2]:#x} (a breadcrumb of the vector accelerator driver, 0x60-0x6F: it is NOT where the audio interrupt stopped; where the CPU was is in the PC block below)")
+    print("  main-loop markers: 0x10 loop head, 0x12 before the UI tick, 0x20/0x21 around the battery poll, 0x22 watchdog fed, 0x50-0x52 audio-core tick, 0x71-0x75 inside the SARADC reader, 0x66 UI input handler, 0x76 back from it, 0x77/0x78 around the synth's background poll, 0x79/0x7A inside its lag search, 0x7D/0x7E around the Icarus Synth input handler")
 
 
 def show_tsta(rom: Rom):
@@ -1020,7 +1021,107 @@ def show_tsta(rom: Rom):
           f"accelerator broken {(w[10] >> 8) & 0xFF}, auto-bypass {(w[10] >> 16) & 0xFF}")
 
 
-def show_events(rom: Rom, compact: bool = False):
+_SYMS = None
+
+
+def _symbols():
+    """(address, name) of the functions in build_pi32/pocket_amp_custom.elf, sorted; [] when there is no ELF or no llvm-nm."""
+    global _SYMS
+    if _SYMS is not None:
+        return _SYMS
+    _SYMS = []
+    elf = Path(__file__).resolve().parent.parent / "build_pi32" / "pocket_amp_custom.elf"
+    nm = None
+    for root in (os.environ.get("PI32_ROOT"), str(Path.home() / "tools" / "jieli" / "C$" / "JL" / "pi32"), r"C:\JL\pi32"):
+        if root and (Path(root) / "bin" / "llvm-nm.exe").exists():
+            nm = Path(root) / "bin" / "llvm-nm.exe"
+            break
+    if not elf.exists() or nm is None:
+        return _SYMS
+    import subprocess
+    out = subprocess.run([str(nm), "-n", str(elf)], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] in "tTwW":
+            try:
+                _SYMS.append((int(parts[0], 16), parts[2]))
+            except ValueError:
+                pass
+    return _SYMS
+
+
+def _sym(addr: int) -> str:
+    if not (0x02000000 <= addr < 0x02100000):
+        return ""
+    best = None
+    for a, n in _symbols():
+        if a <= addr:
+            best = (a, n)
+        else:
+            break
+    return f"  <{best[1]}+{addr - best[0]:#x}>" if best else "  <no symbol: build_pi32/pocket_amp_custom.elf missing or from another build>"
+
+
+def show_steps(rom: Rom):
+    """The last step markers: a preset / amp swap (0x01C7C980) and a flash operation (0x01C7C984; steps counted at 0x01C7C988, flash address at 0x01C7C98C)."""
+    w = words(rom.read(0x01C7C980, 16))
+    swap = {0x01: "swap: started", 0x02: "swap: before waiting for core 1", 0x03: "swap: core 1 idle", 0x61: "swap/boot preset apply finished", 0x7F: "swap finished"}
+    fl = {0x80: "flash quiesce: entered", 0x81: "waited for 3 audio interrupts", 0x82: "interrupts masked (cli)", 0x83: "core 1 idle", 0x84: "tx buffer silenced - the driver runs now",
+          0x90: "flash end: entered", 0x91: "interrupts back on (sti)", 0x92: "output hold restored", 0xA0: "erase: start", 0xA1: "erase: command done", 0xA2: "erase: verified",
+          0xA3: "erase: ended", 0xB0: "settings save: start", 0xB1: "settings save: finished", 0xC0: "write: start", 0xC1: "write: a 256-byte chunk done", 0xC2: "write: all chunks done", 0xC3: "write: ended"}
+    print(f"last swap step {w[0]:#x} ({swap.get(w[0], 'a preset-apply step' if w[0] else 'none')}); last flash step {w[1]:#x} ({fl.get(w[1], 'none' if not w[1] else '?')}), "
+          f"{w[2]} flash steps since boot, last flash address {w[3]:#x}")
+    t5 = words(rom.read(0x01C7C9C0, 16))
+    print(f"timer interrupt (USB, independent of the audio one): {t5[0]} entries since boot; last interrupted PC {t5[1]:#x}{_sym(t5[1]) if 0x02000000 <= t5[1] < 0x02100000 else ''}, return address {t5[2]:#x}{_sym(t5[2]) if 0x02000000 <= t5[2] < 0x02100000 else ''}; at {t5[3] / 24000.0:.1f} ms of the 24 MHz counter")
+    hb = words(rom.read(0x01C7C5C0, 20))
+    print(f"main-loop heartbeat (no USB): {hb[1]} ticks, last at {hb[2]} ms; synth polls started {hb[3]}, returned {hb[4]}" + ("  <-- a poll was started and did not return" if hb[3] != hb[4] else ""))
+    sn = words(rom.read(0x01C7C9B0, 16))
+    def snap(v, label):
+        why = {0: "-", 1: "all lags of the slice done", 2: "stopped at a lag start (det_gen changed)", 3: "stopped after a lag (det_gen changed)", 4: "minimum found -> finish",
+               5: "ran off the range -> finish", 6: "end of range -> finish", 7: "det_gen changed before the end"}.get((v >> 12) & 0xF, "?")
+        return f"{label}: det_gen {v >> 24}, det_state {(v >> 16) & 0xFF}, lag {v & 0x3FF}, {why}"
+    print("pitch search state  " + snap(sn[1], "at entry") + " | " + snap(sn[2], "last lag start") + " | " + snap(sn[3], "at exit"))
+    rc_ = words(rom.read(0x01C7C9E0, 32))
+    print(f"detector race counters: {rc_[0]} slices run; det_gen changed at the START of a lag in {rc_[1]} (the old search would have gone on into the new window), DURING a lag in {rc_[2]} (a lag summed a mix of two windows); "
+          f"last change at lag {rc_[3]}; pitch_det_start ran while a slice was active {rc_[4]}x, the audio path cancelled during a slice {rc_[5]}x; window snapshots created {rc_[6]}, searches entered {rc_[0]}; searches made {rc_[7]}, returned {words(rom.read(0x01C7C9A8, 4))[0]}; LADDER STAGE {words(rom.read(0x01C7C9AC, 4))[0]} (1 bare loop, 2 +dn store, 3 +float step, 4 +candidates, 5 +window arithmetic, 6 progress to lag 192, 7 to 288, 8 to 384, 9 to 512 (no finishing), 10 +finishing but no commit [commits skipped: {words(rom.read(0x01C7C9A4, 4))[0]}], 11 +commit)")
+    lc = words(rom.read(0x01C7C9D0, 16))
+    phase = {0x10000: "loading the window sums of lag", 0x20000: "sums done, in the float step of lag"}.get(lc[0] & 0xFFFF0000, "?")
+    print(f"pitch lag search: {lc[1]} slices started, {lc[2]} lags finished; stopped {phase} {lc[0] & 0xFFFF} (last window sum {lc[3]:#x})")
+    stage = words(rom.read(0x01C7C9B0, 4))[0]
+    names = {1: "input gate done", 2: "input conditioning done", 3: "pitch feed done", 4: "ADSR trigger done", 5: "ADSR stepped", 6: "modulation frame (glide / vibrato / LFO) done", 7: "analog engine done",
+             8: "oscillators done", 9: "synth filter done", 10: "mixer done"}
+    print(f"last synth stage the audio interrupt reached: {stage:#x} ({names.get(stage, 'none' if not stage else '?')}); a crash during stage N+1 leaves N here")
+    f = words(rom.read(0x01C7C990, 16))
+    if f[0] == 0x4D525A46:
+        print(f"at the freeze: the audio interrupt was {'STILL INSIDE its handler (stuck in it)' if f[1] else 'NOT running (never entered: interrupts masked or the request lost)'}; swap step {f[2]:#x}, flash step {f[3]:#x}")
+
+
+def show_pc(rom: Rom):
+    w = words(rom.read(0x01C7C900, 64))
+    if w[0] != 0x47524350:
+        print("where the CPU was: not recorded (a build without the interrupted-PC block)")
+        return
+    code = lambda v: (0x02000000 <= v < 0x02100000)
+    frame = lambda a, b, c: f"{a:#010x}{_sym(a)}  (rets {b:#010x}{_sym(b)}, psr {c:#010x})"
+    print("where the CPU was (the audio interrupt records the PC it interrupted; symbols from the build_pi32 ELF - valid only if the unit runs that build):")
+    if w[5] or w[6] or w[7]:
+        pc = next((v for v in (w[5], w[6], w[7]) if code(v)), w[5])
+        print(f"  AT THE FREEZE: the main context was at {frame(w[5], w[6], w[7])}")
+        print(f"                 -> {pc:#010x}{_sym(pc)}   <- stopped here")
+    else:
+        print("  no freeze captured in this run")
+    n = min(w[4], 8)
+    ring = [w[8 + ((w[4] - n + k) & 7)] for k in range(n)]
+    print(f"  the interrupted PC every 1.5 s, oldest first ({w[4]} samples taken, last {n}):")
+    for v in ring:
+        print(f"    {v:#010x}{_sym(v)}")
+    if len(ring) >= 4 and len(set(ring[-4:])) == 1:
+        print(f"  VERDICT: the last 4 samples are the SAME address ({ring[-1]:#x}): the CPU was stuck there for at least 4.5 s")
+    elif ring:
+        print("  the sampled PCs differ: the CPU was running, not stuck on one instruction (a hang elsewhere, or a loop spanning several addresses)")
+
+
+def show_events(rom: Rom, compact: bool = False, quiet: bool = False):
     w = words(rom.read(0x01C7D600, 16 + 64 * 16))
     if w[0] != 0x474C5645:
         print("event log: not present (build without it)")
@@ -1053,6 +1154,8 @@ def show_events(rom: Rom, compact: bool = False):
             17: lambda: f"FREEZE: {'the MAIN LOOP stopped' if a == 1 else 'the AUDIO INTERRUPT stopped'} (main-loop passes {b}); the unit sent itself to the download mode",
             16: lambda: f"SLOW AMP BLOCK: {a} us (limit for core 1 is about 1450); input peak {b >> 16}% of full scale, output peak {b & 0x7FFF}%; the screen's SPI transfer was {'RUNNING' if b & 0x8000 else 'idle'}",
             20: lambda: ble_event_text(a, b),
+            21: lambda: f"output came up from the power-on silence {a} ms after boot (master {b & 0xFF} %)",
+            22: lambda: ("SYNTH SHED to the dry guitar: " + (f"{b} of 64 audio blocks ran late" if a == 1 else f"the load governor sat at level 2 for 3 s (average audio time {b} us)")),
             15: lambda: f"LOAD GOVERNOR: quality level {a} (0 full, 1 drive clipper at 2x, 2 also a shorter cabinet), average audio time {b} us",
         }.get(code, lambda: f"code {code} a={a:#x} b={b:#x}")()
     if compact:
@@ -1065,6 +1168,8 @@ def show_events(rom: Rom, compact: bool = False):
             if t_prev is not None:
                 t_acc += ((t - t_prev) & 0xFFFFFFFF) / 24000.0
             t_prev = t
+            if quiet and code in (20, 21):                       # the synth readout: nothing from the radio (not in use) or the power-up
+                continue
             if code in (1, 2, 3, 12) or (code in (5, 7) and (code == 5 or a != 2)):     # swap requests of the AMP slot stay: they say which model (>= 20: a NAM capture) was asked for
                 continue
             if code == 9:
@@ -1132,6 +1237,7 @@ def main() -> int:
     sub.add_parser("blelink", help="the BLE stack's own diagnostics decoded on the host: the last CONNECT_IND, the last close and why, and a timeline of events and ATT / SMP / link-layer PDUs")
     sub.add_parser("bleev", help="the Bluetooth link instrumentation: the last 256 connection events, per-channel heard/seen tables, interrupt durations, the experiment profile (pack 149 on)")
     sub.add_parser("ble", help="the Bluetooth radio: state, start-up result, advertising counters, errors (the build with PA_BLE)")
+    sub.add_parser("synth", help="the focused Icarus Synth readout: build, view, audio-interrupt budget, the synth's slot and stage rows, the governor, the events that matter, where the CPU was; no radio, clocks, self-tests or experiments (slots --full has those)")
     sub.add_parser("stats", help="the audio interrupt statistics")
     sl = sub.add_parser("slots", help="the unit's state: timing per slot, the WaveNet engine, the second core, levels (compact; --full adds every experiment and self-test)")
     sl.add_argument("--full", action="store_true", help="every section: probes, benchmarks, font and clock dumps, the old experiments")
@@ -1170,6 +1276,24 @@ def main() -> int:
         elif a.cmd == "usb":
             show_usb(rom)
             show_usb_tx(rom)
+        elif a.cmd == "synth":
+            show_build(rom)
+            show_tsta(rom)
+            show_crash(rom)
+            show_reset_cause(rom)
+            show_cp(rom)
+            show_pc(rom)
+            show_steps(rom)
+            show_events(rom, compact=True, quiet=True)
+            show_governor(rom)
+            show_isr_parts(rom)
+            show_ui_smooth(rom)
+            show_pool(rom)
+            show_levels(rom)
+            show_accel(rom)
+            show_slots(rom, compact=True)
+            show_smp(rom)
+            show_stats(rom)
         elif a.cmd == "slots":
             full = a.full
             show_build(rom)
@@ -1194,8 +1318,10 @@ def main() -> int:
                 show_pot(rom)
                 show_text_selftest(rom)
             show_levels(rom)
+            show_cp(rom)
+            show_pc(rom)
+            show_steps(rom)
             if full:
-                show_cp(rom)
                 show_boot(rom)
                 show_battery(rom)
                 show_fir(rom)

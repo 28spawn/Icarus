@@ -94,7 +94,7 @@ These run the **firmware's own code** (the same `pa_audio_core`, UI and DSP) on 
 | ID | Test | Covers |
 |---|---|---|
 | F-00 | WASM build (`wasm/build_wasm.py`) | The portable core still builds for the browser |
-| F-01 | `emu/test_onyx_ui.py` | 30 UI flows with snapshots: grid, moving blocks, editors, bank, tuner, groove, save, settings |
+| F-01 | `emu/test_icarus_ui.py` | 30 UI flows with snapshots: grid, moving blocks, editors, bank, tuner, groove, save, settings |
 | F-02 | `emu/test_buttons.py` | Every button and combo maps to one action |
 | F-03 | `emu/test_editor.py` | The block parameter editor |
 | F-04 | `emu/test_input.py` | Debounce, tap vs hold, combos |
@@ -371,9 +371,35 @@ then have to recover.
    combinations on a unit that's half-flashed.**
 
 
-### 5.1 Staged bring-up of a heavy new block (Project Alpha, and anything like it)
+### 5.0 The synth gate: run it BEFORE every build that goes to the unit
 
-A block whose cost was never measured on the unit must not be switched on in one step: the first Project Alpha build ran its pitch
+`python custom-fw/tools/synth_gate.py` (it also runs inside `qa_gate.py` as the SYN section, and a FAIL there is a NO-GO). It exists because the synth
+went through the QA gate green and froze the unit three times: the gate checked that the synth made sound, not what it cost, how it coped with hostile
+input, or whether the very same code had already failed on the unit.
+
+| id | what it checks |
+|---|---|
+| SYN-01 | **predicted unit cost.** The host probe times every factory preset on picked notes and on loud chords; the numbers are scaled to the unit with the ratio from a real readout (`qa/synth_cost.json`) and compared with the budget derived from HW-16: 280 us average and 500 us worst block for the synth (the rest of the chain averages ~880 us of the 1,160 us the whole chain may use). |
+| SYN-02 | **libm census.** No sin / cos / exp / log / pow / tanh / fmod call per block on the audio-interrupt side (library routines on the unit; the firmware is built with `-fno-builtin`; sqrtf is 1,158 ns there). |
+| SYN-03 | **robustness.** Every preset against NaN, Inf, denormal-range input, full scale, DC and 1e6x full scale: finite and bounded while it lasts, sounding again afterwards, and denormal input no dearer than 4x a normal note. One NaN used to poison the synth for good. |
+| SYN-04 | **stack frames** under 2 KB for every synth function (it runs in the audio interrupt). |
+| SYN-05 | **emulator soak:** the Icarus synth view for 3 x 90 s of mixed playing; no stall. (`--quick-synth` skips it.) |
+| SYN-06 | **hardware record** (`qa/synth_stages.json`): the same synth code that already FAILED a bring-up stage on the unit does not pass again until something changed. |
+
+**Take the readout with the focused command**: `python custom-fw/tools/jl_ram_read.py synth > dump.txt` (unit in download mode, run as Administrator). It prints only what the
+bring-up needs: build, uptime and view, the audio-interrupt budget, the governor, the synth's slot and stage rows, the events that matter (button clicks, screen changes, the
+radio and the power-up are left out, and a turn of the encoder is one entry, not one per click), and **where the CPU was**: the audio interrupt records the PC it interrupted,
+so after a freeze the readout names the function the main loop was stuck in. The symbols come from `build_pi32/pocket_amp_custom.elf`, so take the readout right after building
+the image that is on the unit. `slots --full` still has the radio, clock, self-test and experiment sections.
+
+After every bring-up stage (5.1): save the readout to a file and run `python custom-fw/tools/synth_dump_check.py dump.txt --stage OSC`. It judges the
+readout against the HW-21 limits (audio interrupt longest 1,160 us, 0 overruns, governor level 0, synth 280 us average / 500 us worst, no freeze, no
+shed), prints the synth's stage split, and records the verdict against the current synth code. Add `--calibrate` to also re-take SYN-01's host -> unit
+ratio from that readout; do this whenever a readout of the current code is at hand, because the ratio is what makes the prediction honest.
+
+### 5.1 Staged bring-up of a heavy new block (Icarus Synth, and anything like it)
+
+A block whose cost was never measured on the unit must not be switched on in one step: the first Icarus Synth build ran its pitch
 search inside the audio interrupt, took twice the block time, and the unit froze 18 s after the synth was enabled. The host suites
 cannot see this (x86 has an FPU, the unit does not), so the stages below are the test.
 
@@ -384,6 +410,8 @@ cannot see this (x86 has an FPU, the unit does not), so the stages below are the
 5. **Play for 2 minutes each:** open low E and A (the slowest notes to track), high notes on the 12th fret and up, fast runs, strummed chords.
    Dump after each.
 6. **Soak:** 10 minutes on the heaviest preset with the amp and cabinet on.
+
+The dump's slot table has three extra rows for the synth, `syn:front`, `syn:engines` and `syn:back` (gate, conditioning and pitch feed; analog stage, oscillators and filter; mixer, output gate and meters), next to `SYNTH` for the whole block: when a stage is over its limit they say which part to cut. The op-cost probe in the same dump gives the price of one float operation on this core (8.3 ns), a `fabsf()` library call (47.8 ns) and a `sqrtf()` (1,155 ns).
 
 At every stage the pass limits are those of HW-21. **Stop at the first stage that fails** and send the dump: do not go on to the next mode.
 The firmware also protects itself: if more than 8 of 64 audio blocks run late with the synth on, the synth drops to the dry guitar and the
@@ -426,7 +454,7 @@ Use `PASS`, `FAIL` or `N/A`. `N/A` is only allowed where the test says so.
 | **HW-17** | USB audio | Plug into a PC; run `tools/usb_enum_check_pc.ps1`. From step C of `USB-AUDIO-PLAN.md`: record 10 min on the PC (test tone, then the chain output); from step D: record 60 s on an Android phone over OTG | Step A: the audio function `MI_00` present, an audio endpoint listed, MIDI unchanged. Step C: no gap over 10 min, the sample-rate error measured and recorded in ppm, the level equal to the DAC's. Step D: no dropout |
 | **HW-18** | BLE-MIDI link, per host | For each of Windows, iPhone, Android: `tools/ble_link_trace_pc.py` (4 gated attempts on a PC, or `--watch` while you connect by hand); judge the JSON files with `tools/ble_gate_eval.py windows:... iphone:... android:...` | The evaluator prints `HW-18 PASS`: every gated attempt connects and switches notifications on; 0 established links die of a supervision timeout; every established link heard >= 95 % and valid >= 95 %; the link closes and the unit advertises again within 10 s of our disconnect. The failure-to-establish share is reported, not gated |
 | **HW-19** | MIDI controller map | With a real foot controller or a DAW send PC 0, 1, 79; CC 20-27 (the stock module order: FX, AMP, MOD, DLY, REV, CAB, then our DRIVE and EQ); CC 64-67; every further CC or NRPN `MIDI-MAP-CUSTOM.md` lists as implemented | Each does what the map says, once per message; a stock controller's module CCs act on the module they name |
-| **HW-21** | Project Alpha bring-up | Staged, volume at minimum, following 5.1 (synth off, ANALOG, OSCILLATOR, HYBRID/GUITAR, then low notes, high notes and chords, then a 10 min soak on the heaviest preset). Read the diagnostic dump after every stage | At every stage: audio interrupt longest $\le 1.16\text{ ms}$, overruns 0, no auto-bypass, synth shed 0, SYNTH slot longest $\le 600\ \mu s$, no OVERLOAD popup, UI stays smooth. **Required whenever src/effects/project_alpha or the audio interrupt changed** |
+| **HW-21** | Icarus Synth bring-up | Staged, volume at minimum, following 5.1 (synth off, ANALOG, OSCILLATOR, HYBRID/GUITAR, then low notes, high notes and chords, then a 10 min soak on the heaviest preset). Read the diagnostic dump after every stage | At every stage: audio interrupt longest $\le 1.16\text{ ms}$, overruns 0, no auto-bypass, synth shed 0, SYNTH slot longest $\le 600\ \mu s$, no OVERLOAD popup, UI stays smooth. **Required whenever src/effects/icarus or the audio interrupt changed** |
 | **HW-20** | Factory preset levels on the unit | Play one reference DI through P01-P40 and measure the output level | All within +-1.5 dB of each other; none silent; none clipping. The emulator check F-16 is not the DAC |
 | **HW-14** | Recovery from this build | Restore stock with the proven route, confirm stock boots, re-flash the candidate | Both directions work. **Required whenever packaging, linker, startup or USB/OTA changed** |
 | **HW-15** | Power loss during save | Pull power mid-save 20 times | Every boot comes up with either the old or the new preset bank, never garbage. **N/A while flash writes are stubbed** |
@@ -498,3 +526,23 @@ These only show up on hardware, which is why section 6 exists:
 Open items that will add tests here when they land: USB audio streaming (HW-17 grows with each step of `USB-AUDIO-PLAN.md`), Bluetooth audio playback, wired flash writes (HW-15 becomes mandatory and S-08 becomes a hard fail), the
 real watchdog (add a hang-recovery test), and a JEDEC-ID read at boot (lets S-08 use the
 detected chip size).
+
+## 5.2 The input matrix (emulator, part of every build)
+
+`custom-fw/emu/test_matrix.py` runs inside `build.ps1` (step 3b) and in the QA gate (F-02b). No image is written unless it passes. It plays a guitar-like signal through
+the real firmware core and, after every gesture, checks that the core is alive, the output is finite and bounded, the screen and preset numbers are valid, the effect memory
+is flat and HOME gets back to the main screen. Sections: M1 every single button (tap and 6 hold lengths, then every second button on the screen it opened), M2 every pair,
+triple and all six together (tap and holds), M3 a depth-3 walk of the screens plus the documented routes (tuner, bank, groove, stomp assign), M4 every synth preset on and off
+x < > swaps, encoder, live synth toggle during a swap, M5 a 300-swap storm, M6 a seeded random walk (4000 gestures; `--seed`, `--walk`, `--quick`).
+`build.ps1 -DiagnosticBuild` skips it for bring-up images that are never released.
+
+What it CANNOT see: faults that exist only on the chip (the flash quiesce and XIP, core 1, interrupt timing, the reset/watchdog behaviour). Those are covered only by the
+staged unit bring-up in 5.1 and the RAM readout (`jl_ram_read.py synth`): never skip a stage. A crash on the unit that the matrix passed is a gap in the matrix; add the
+gesture to it.
+
+## 5.3 Watching a crash live over USB
+
+`python -u custom-fw/tools/crash_watch_pc.py --seconds 600` samples the running unit's crumbs (main-loop checkpoint, audio-interrupt count and PC, synth stage, swap and flash steps,
+the timer interrupt's count and PC, the synth's call count) 15-40 times a second over the USB diag channel (read-only), logs every sample to `crash_watch.log`, and when the unit stops
+answering prints the last good sample and the 40 before it. Start it first, then open the Icarus synth screen and play. The unit must be running, not in the download mode. After the crash the
+unit is in the download mode as before, so `jl_ram_read.py synth` still gives the full readout.

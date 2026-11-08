@@ -47,8 +47,8 @@ include = src/sys/*.c
 [g_board]
 include = src/board/*.c
 
-[g_alpha]
-include = src/effects/project_alpha/*.c
+[g_icarus]
+include = src/effects/icarus/*.c
 
 [g_ui]
 include = src/ui/*.c
@@ -68,10 +68,10 @@ exclude = src/board/main.c, src/board/audio_alnk.c, src/board/st7735s.c, src/sys
 include = src/sys/cpu_meter.c
 
 [host_reclaim]
-include = @g_fx, @g_alpha, src/dsp/hw_accel.c, src/dsp/pa_biquad.c, src/sys/pa_pool.c, src/sys/cpu_meter.c
+include = @g_fx, @g_icarus, src/dsp/hw_accel.c, src/dsp/pa_biquad.c, src/sys/pa_pool.c, src/sys/cpu_meter.c
 
 [host_dsp]
-include = @g_dsp, @g_nam, @g_fx, @g_alpha, src/sys/pa_pool.c, src/sys/cpu_meter.c
+include = @g_dsp, @g_nam, @g_fx, @g_icarus, src/sys/pa_pool.c, src/sys/cpu_meter.c
 
 [host_full]
 exclude = src/board/main.c, src/board/audio_alnk.c, src/board/st7735s.c, src/board/gpio_scan.c, src/sys/smp_cpu1.c, src/sys/sysex.c, src/board/ota_hw.c

@@ -38,8 +38,8 @@
 #include "ble_hw.h"
 #include "ble_vm.h"                     /* the stored trims rf_init takes (ble_vm.c) */
 #include "ble_diag.h"                   /* console blell: counters only, no behaviour */
-#include "pa_ble_remap.h"               /* PA-MOD: the channel remap done in software (custom-fw/include) */
-#include "pa_prof.h"                     /* PA-MOD: run-time experiment switches */
+#include "pa_ble_remap.h"               /* ICARUS: the channel remap done in software (custom-fw/include) */
+#include "pa_prof.h"                     /* ICARUS: run-time experiment switches */
 BLE_API int ble_ll_encrypted(void);
 #include "fm1_ble.h"
 #include "rf_share.h"                   /* the radio started once, shared with Bluetooth audio (bt/bt_inq.c) */
@@ -132,8 +132,8 @@ static struct {
     uint8_t state, gen;                /* gen: moves on every state change (a callback may stop / restart the link) */
     uint8_t rx_next, rx_sn, rx_seen, rx_any;
     uint8_t win_wide, upd, sca;
-    uint8_t vendor, az_started;        /* PA-MOD (pack 153): adaptive window profile, latched at connection start; autozoom has seen the first reception */
-    uint32_t win32, widen_us, az_widen;   /* PA-MOD: nominal receive window, widening in force, autozoom extra widening */
+    uint8_t vendor, az_started;        /* ICARUS (pack 153): adaptive window profile, latched at connection start; autozoom has seen the first reception */
+    uint32_t win32, widen_us, az_widen;   /* ICARUS: nominal receive window, widening in force, autozoom extra widening */
     uint16_t interval, last_evt, wide_from, upd_instant, chm_instant;
     struct ble_hw_conn_upd u;
     uint8_t chm[5];
@@ -269,7 +269,7 @@ BLE_API uint8_t ble_hw_addr(uint8_t addr[6])
     uint32_t a, b;
     if (hw_vm_addr(addr))
         return 0;
-    if (pa_ble_static_addr(addr))       /* PA-MOD: the same random static address on every boot (derived from this unit's calibration), so a central's bond keeps matching it */
+    if (pa_ble_static_addr(addr))       /* ICARUS: the same random static address on every boot (derived from this unit's calibration), so a central's bond keeps matching it */
         return 1;
     do {
         a = fm1_ble_rng32();
@@ -310,7 +310,7 @@ static uint8_t hw_freq(uint32_t i)      /* MHz - 2402 of channel index i (HW §3
 uint32_t pa_ble_cls[8];            /* events by class: [0] direct seen, [1] direct heard, [2] remapped seen, [3] remapped heard (the map the link had at that event); [4..7] the same for counter - 1 */
 static uint8_t pa_act_chm[5], pa_act_hop, pa_act_rm[37];
 
-/* PA-MOD: the baseband's own remap of an unused channel was only measured with near-full maps (iPhone, Mac). Windows sends maps with 12..20 of the 37 channels, so most events
+/* ICARUS: the baseband's own remap of an unused channel was only measured with near-full maps (iPhone, Mac). Windows sends maps with 12..20 of the 37 channels, so most events
  * need the remap. Unless the HW_REMAP profile bit is set the driver does it itself (pa_ble_remap.h) and gives the engine a FULL map whose frequency tables already hold the
  * remapped channel for every unmapped index: the engine only looks up a frequency, the path the full-map links prove. Measured: software remap 99.7% of events heard (pack 146),
  * the baseband's own remap 6.7% (pack 145). */
@@ -363,9 +363,9 @@ static void cb_channels(const uint8_t chm[5])
 static uint32_t hw_widening(uint16_t interval, uint8_t sca)
 {
     static const uint16_t PPM[8] = {500, 250, 150, 100, 75, 50, 30, 20};   /* Core Vol 6 Part B 2.3.3.1 */
-    if (drv.vendor)     /* PA-MOD (pack 153): slave widening calculation: master SCA + 500 ppm, x (latency + 1) with latency 0, no multiplier */
+    if (drv.vendor)     /* ICARUS (pack 153): slave widening calculation: master SCA + 500 ppm, x (latency + 1) with latency 0, no multiplier */
         return 2u + 2u * ((uint32_t)interval * 1250u * (PPM[sca & 7u] + 500u) / 1000000u);
-    return HW_WIDEN_X * (PA_PROF(PA_BLE_PROF_WIDEN2) ? 2u : 1u) * (2u + 2u * ((uint32_t)interval * 1250u * (PPM[sca & 7u] + 200u) / 1000000u));   /* PA-MOD: x HW_WIDEN_X */
+    return HW_WIDEN_X * (PA_PROF(PA_BLE_PROF_WIDEN2) ? 2u : 1u) * (2u + 2u * ((uint32_t)interval * 1250u * (PPM[sca & 7u] + 200u) / 1000000u));   /* ICARUS: x HW_WIDEN_X */
 }
 
 static void cb_widen(uint32_t us)       /* HW §7 step 10 */
@@ -380,7 +380,7 @@ static void cb_window(uint32_t us)      /* WINCNTL0/1 (HW §3, §7 step 13) */
     CB->wincntl[1] = (uint16_t)(us >> 16);
 }
 
-/* ---- PA-MOD (pack 153): adaptive receive-window management and drift compensation per hardware registers. */
+/* ---- ICARUS (pack 153): adaptive receive-window management and drift compensation per hardware registers. */
 
 static void cb_window_nominal(uint32_t us)  /* window register and nominal field (what autozoom restores) */
 {
@@ -603,7 +603,7 @@ BLE_API void ble_hw_adv_stop(void)
 BLE_API void ble_hw_conn_start(const struct ble_hw_conn *c)
 {
     uint16_t h0;
-    drv.vendor = PA_PROF(PA_BLE_PROF_VENDOR_WIN) ? 1u : 0u;   /* PA-MOD (pack 153): latched for this connection */
+    drv.vendor = PA_PROF(PA_BLE_PROF_VENDOR_WIN) ? 1u : 0u;   /* ICARUS (pack 153): latched for this connection */
     drv.az_started = 0;
     drv.az_widen = 0;
     cb_rfprio(28u);                                        /* 1 */
@@ -635,7 +635,7 @@ BLE_API void ble_hw_conn_start(const struct ble_hw_conn *c)
     fm1_ble_col_wr(HW_LINK, 1, 2u * c->interval);         /* 14 */
     fm1_ble_col_wr(HW_LINK, 15, 0x8000u | (2u * c->interval) >> 16);
     cb_channels(c->chm);                                   /* 16 */
-    pa_act_hop = c->hop;                                   /* PA-MOD: for the per-class event counters */
+    pa_act_hop = c->hop;                                   /* ICARUS: for the per-class event counters */
     fm1_ble_col_wr(HW_LINK, 6, 0x8000u | (uint32_t)c->hop << 8 | c->hop);
     CB->txahdr[0] = CB->txahdr[1] = 0;                     /* 17: empty PDUs, opposite SN */
     h0 = (uint16_t)((CB->txtog & 1u) << 2 | 1u);
@@ -1130,7 +1130,7 @@ static void hw_instants(uint16_t counter)
         fm1_ble_col_wr(HW_LINK, 2, 7u << 12);              /* latency 0 */
         drv.widen_us = hw_widening(u->interval, drv.sca);
         cb_widen(drv.widen_us);
-        drv.az_widen = 0;                                  /* PA-MOD: a new interval starts the autozoom over */
+        drv.az_widen = 0;                                  /* ICARUS: a new interval starts the autozoom over */
         fm1_ble_col_wr(HW_LINK, 4, u->win_offset ? 0x8000u | (2u * u->win_offset - 1u) : 0u);
         fm1_ble_col_wr(HW_LINK, 1, 2u * u->interval);
         fm1_ble_col_wr(HW_LINK, 15, 0x8000u | (2u * u->interval) >> 16);
@@ -1172,7 +1172,7 @@ static void hw_event_service(void)
     BLE_DG(ble_dg.conn_events++);
     BLE_DG(ble_dg.last_evt = counter);
     /* a reception in this event: an RX interrupt, or EVTCOUNT (also moved by a repeat the engine dropped) */
-    /* PA-MOD (pack 151): heard = a packet was taken from an RX buffer in this event, and nothing else. This used to be
+    /* ICARUS (pack 151): heard = a packet was taken from an RX buffer in this event, and nothing else. This used to be
      * 'rx_seen || (rx_any && EVTCOUNT == counter)', on the reading that EVTCOUNT is the counter of the last reception
      * (BLE-HW-FACTS section 3). Measured on the unit (2026-11-03) with the central gone: EVTCOUNT counted up with every
      * event (13227 -> 13321) while rx_good, rx_irqs and the PDU count stayed flat, so the term was true on every event,
@@ -1180,7 +1180,7 @@ static void hw_event_service(void)
      * advertising and could not be found until a power cycle. */
     rx_ok = drv.rx_seen;
     drv.rx_seen = 0;
-    {   /* PA-MOD: the per-event record (pa_ble_diag.h): heard or not, the channel the hop sequence puts it on, how far the interrupt came from the interval. Two alignments
+    {   /* ICARUS: the per-event record (pa_ble_diag.h): heard or not, the channel the hop sequence puts it on, how far the interrupt came from the interval. Two alignments
          * (this counter, and the one before) because it is not known which event 'counter' names; the right one shows as a difference between channels in the tables. */
         static uint32_t prev_t, prev_err;
         static uint16_t prev_c;
@@ -1238,7 +1238,7 @@ static void hw_event_service(void)
         return;
     }
 #endif
-    if (drv.vendor) {                   /* PA-MOD (pack 153): adaptive autozoom, and what it did into this event's ring record (bits 4-5) */
+    if (drv.vendor) {                   /* ICARUS (pack 153): adaptive autozoom, and what it did into this event's ring record (bits 4-5) */
         const uint8_t z = hw_autozoom(rx_ok);
         pa_ble_dgb.ring[(pa_ble_dgb.wr - 1u) & (PA_BLE_RING_N - 1u)].flags |= (uint8_t)(z << PA_BLE_EVF_ZOOM_SHIFT);
     }
@@ -1255,7 +1255,7 @@ static void hw_event_service(void)
 static void hw_isr_end(uint32_t t0, uint32_t irq)
 {
     uint32_t d = fm1_ticks() - t0;
-    {   /* PA-MOD: how long the radio interrupts run, by interrupt, context (advertising / connected / connected and encrypted) and duration bucket */
+    {   /* ICARUS: how long the radio interrupts run, by interrupt, context (advertising / connected / connected and encrypted) and duration bucket */
         static const uint16_t EDGE[PA_BLE_HIST_BUCKETS - 1u] = {50, 100, 200, 300, 500, 1000};
         const uint32_t us = d / FM1_TICKS_PER_US, ctx = drv.state == HW_CONN ? (ble_ll_encrypted() ? 2u : 1u) : 0u;
         uint32_t b = 0u;

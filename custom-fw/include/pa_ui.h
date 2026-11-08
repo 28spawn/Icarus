@@ -46,7 +46,8 @@ typedef enum {
     PA_UI_VIEW_SYS_INFO     = 13,/* Settings: System */
     PA_UI_VIEW_FACTORY_RESET= 14,/* Settings: Factory Reset / Clean User Presets Confirmation Dialog */
     PA_UI_VIEW_STOMP_ASSIGN = 15,/* STOMP mode: pick the effect a key (VOL-, VOL+, <, >) toggles */
-    PA_UI_VIEW_PROJECT_ALPHA= 16 /* Project Alpha: Vintage Analog Laboratory Guitar Synthesizer */
+    PA_UI_VIEW_ICARUS_SYNTH   = 16, /* Icarus: Vintage Analog Laboratory Guitar Synthesizer */
+#define PA_UI_VIEW_PROJECT_ALPHA PA_UI_VIEW_ICARUS_SYNTH
 } pa_ui_view_t;
 
 #define PA_TUNER_RING 1024u   /* the decimated input ring: 702 samples for a detection plus what arrives while it is computed */
@@ -115,7 +116,7 @@ typedef struct {
     uint8_t          out_level_pct;       /* 0..100% output master level */
     uint8_t          io_output_type;      /* 0 = PHONES, 1 = LINE */
     uint8_t          io_cab_on_line;      /* 0 = OFF, 1 = ON */
-    uint8_t          display_brightness;  /* 0..100% (default 80%) */
+    uint8_t          display_brightness;  /* 0..100% (default 100%) */
     uint8_t          display_auto_dim;    /* 0 = OFF, 1 = 30s, 2 = 1m, 3 = 5m */
     uint8_t          display_battery_pct; /* 0 = OFF, 1 = ON */
     uint8_t          theme;               /* IMP-06: 0 = ONYX, 1 = HIGH CONTRAST */
@@ -230,6 +231,9 @@ uint8_t pa_battery_pct_from_adc(uint16_t adc);
 void    pa_ui_drop_user_model(pa_ui_ctx_t *ui, pa_fx_chain_t *chain, uint8_t kind, uint8_t idx);   /* a stored capture / cabinet was deleted: a slot that played it goes back to the first stock model */   /* the stock formula: 0 below 528, 100 above 635, else (adc * 100 - 52646) / 109; 255 = no reading */
 
 #define UI_GLYPH_FLAT '\x01'   /* tuner flat sign (the 5x7 font has no lowercase 'b') */
+
+const char *pa_ui_get_slot_short(uint8_t slot);
+uint16_t    pa_ui_get_slot_color(uint8_t slot);
 
 void ui_draw_char(uint16_t x, uint16_t y, char c, uint16_t fg, uint16_t bg);
 void ui_draw_str(uint16_t x, uint16_t y, const char *s, uint16_t fg, uint16_t bg);

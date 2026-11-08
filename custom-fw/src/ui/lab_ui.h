@@ -1,4 +1,4 @@
-/* custom-fw/src/ui/lab_ui.h — the "laboratory faceplate" drawing kit shared by every screen (home rack, block pages, settings, Project Alpha).
+/* custom-fw/src/ui/lab_ui.h — the "laboratory faceplate" drawing kit shared by every screen (home rack, block pages, settings, Icarus).
  *
  * The look, in one paragraph: near-black faceplate, SQUARE panels with a 1 px rule, amber corner brackets on whatever has focus (green when
  * it is being edited), legend plates instead of floating captions, tick-ruler gauges with a needle instead of flat progress bars, and LED
@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 #include "pa_ui.h"
-#include "project_alpha_ui.h"          /* ALPHA_COL_* : the laboratory palette */
+#include "icarus_ui.h"          /* ICARUS_COL_* : the laboratory palette */
 
 extern void st7735s_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t rgb565);
 
@@ -46,7 +46,7 @@ static inline void lab_brackets(uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
 
 /* focus state: 0 none, 1 focused (amber), 2 editing (green). A panel with its rule and, when focused, brackets over it: 5 or 13 commands. */
 static inline void lab_card(uint16_t x, uint16_t y, uint16_t w, uint16_t h, int focus) {
-    const uint16_t rule = (focus == 2) ? LAB_COL_PHOS : (focus == 1) ? ALPHA_COL_AMBER : ONYX_COL_LINE;
+    const uint16_t rule = (focus == 2) ? LAB_COL_PHOS : (focus == 1) ? ICARUS_COL_AMBER : ONYX_COL_LINE;
     lab_panel(x, y, w, h, focus ? LAB_COL_FACE_HI : LAB_COL_FACE, rule);
     if (focus) lab_brackets(x, y, w, h, 6u, rule);
 }
@@ -54,7 +54,7 @@ static inline void lab_card(uint16_t x, uint16_t y, uint16_t w, uint16_t h, int 
 /* A square LED, 6 x 6, lit in `col` (with a 2 px highlight) or dark: 2-3 commands. */
 static inline void lab_led(uint16_t x, uint16_t y, int on, uint16_t col) {
     st7735s_fill_rect(x, y, 6, 6, on ? col : ONYX_COL_LINE);
-    if (on) st7735s_fill_rect((uint16_t)(x + 1u), (uint16_t)(y + 1u), 2, 2, ALPHA_COL_TEXT);
+    if (on) st7735s_fill_rect((uint16_t)(x + 1u), (uint16_t)(y + 1u), 2, 2, ICARUS_COL_TEXT);
 }
 
 /* Tick-ruler gauge, the signature control: a scale of 11 ticks (the 0, 50 and 100 % ticks taller), a 2 px trace from the left edge to the
@@ -77,7 +77,7 @@ static inline void lab_ruler(uint16_t x, uint16_t baseline, uint16_t w, int32_t 
     } else if (px > x) {
         st7735s_fill_rect(x, baseline, (uint16_t)(px - x + 1u), 2, col);
     }
-    st7735s_fill_rect((uint16_t)(px > 0u ? px - 1u : 0u), (uint16_t)(baseline + 2u), 3, 4, hot ? ALPHA_COL_AMBER : ALPHA_COL_TEXT);   /* the needle */
+    st7735s_fill_rect((uint16_t)(px > 0u ? px - 1u : 0u), (uint16_t)(baseline + 2u), 3, 4, hot ? ICARUS_COL_AMBER : ICARUS_COL_TEXT);   /* the needle */
 }
 
 /* LED ladder for a level: segments 3 px wide with a 1 px gap, green to 70 %, amber to 90 %, red above; unlit ones dark. w/4 commands. */
@@ -86,7 +86,7 @@ static inline void lab_ladder(uint16_t x, uint16_t y, uint16_t w, uint16_t h, ui
     const uint16_t lit = (uint16_t)(((uint32_t)pct * n + 50u) / 100u);
     for (uint16_t i = 0; i < n; i++) {
         uint16_t col = ONYX_COL_LINE;
-        if (i < lit) col = (i * 100u < n * 70u) ? LAB_COL_PHOS : (i * 100u < n * 90u) ? ALPHA_COL_AMBER : ONYX_COL_BAD;
+        if (i < lit) col = (i * 100u < n * 70u) ? LAB_COL_PHOS : (i * 100u < n * 90u) ? ICARUS_COL_AMBER : ONYX_COL_BAD;
         st7735s_fill_rect((uint16_t)(x + i * 4u), y, 3, h, col);
     }
 }
@@ -95,14 +95,14 @@ static inline void lab_ladder(uint16_t x, uint16_t y, uint16_t w, uint16_t h, ui
  * block's colour. 3 commands + text. */
 static inline void lab_header_band(void) {
     st7735s_fill_rect(0, 0, 240, 30, LAB_COL_FACE);
-    st7735s_fill_rect(0, 30, 240, 1, ALPHA_COL_AMBER);
+    st7735s_fill_rect(0, 30, 240, 1, ICARUS_COL_AMBER);
 }
 
 /* A toggle switch plate (the block's ON / OFF): 48 x 20 at (x, y). A lit LED and the word. */
 static inline void lab_switch(uint16_t x, uint16_t y, int on, uint16_t col, int focus) {
     lab_card(x, y, 48, 20, focus);
     lab_led((uint16_t)(x + 7u), (uint16_t)(y + 7u), on, col);
-    ui_draw_str((uint16_t)(x + 18u), (uint16_t)(y + 7u), on ? "ON" : "OFF", on ? ALPHA_COL_TEXT : ONYX_COL_MUTE, focus ? LAB_COL_FACE_HI : LAB_COL_FACE);
+    ui_draw_str((uint16_t)(x + 18u), (uint16_t)(y + 7u), on ? "ON" : "OFF", on ? ICARUS_COL_TEXT : ONYX_COL_MUTE, focus ? LAB_COL_FACE_HI : LAB_COL_FACE);
 }
 
 #endif /* LAB_UI_H */

@@ -64,13 +64,13 @@
 #define FM1_BBP_POLLS 1000u               /* the BBP start bit polled to 0 (stock reads it once; the bound is ours) */
 #define FM1_RFSPI_POLLS 1000u             /* HW §5.2 busy [22:20]; the bound is ours */
 #define FM1_VCO_BANDS 64u                 /* stock's scan used bands 0..63 (§16.1 group 7, 0x11938 [25:19]) */
-#ifndef FM1_VCO_EDGE_US   /* PA-MOD: overridable (custom-fw/src/board/ble_radio.c sets them from stock's clock-scaled loops) */
+#ifndef FM1_VCO_EDGE_US   /* ICARUS: overridable (custom-fw/src/board/ble_radio.c sets them from stock's clock-scaled loops) */
 #define FM1_VCO_EDGE_US 2u
 #endif                /* between the step's pulse edges (stock: ~2 us in the emulator) [I] */
-#ifndef FM1_VCO_SETTLE_US /* PA-MOD: overridable, see above */
+#ifndef FM1_VCO_SETTLE_US /* ICARUS: overridable, see above */
 #define FM1_VCO_SETTLE_US 50u
 #endif
-/* PA-MOD: two optional hooks (custom-fw/src/board/ble_radio.c): FM1_VCO_STOCK_SCAN() runs after the bisection below; FM1_LUT_W1(entry, cmd, word) may change the RF-die LUT's second word before it is written. */
+/* ICARUS: two optional hooks (custom-fw/src/board/ble_radio.c): FM1_VCO_STOCK_SCAN() runs after the bisection below; FM1_LUT_W1(entry, cmd, word) may change the RF-die LUT's second word before it is written. */
 #ifndef FM1_LUT_W1
 #define FM1_LUT_W1(e, c, w) (w)
 #endif             /* before a measurement (stock: ~45 us in the emulator) [I] */
@@ -250,7 +250,7 @@ static void fm1_ble_vco_scan(uint32_t fine0)
         }
     }
 #ifdef FM1_VCO_STOCK_SCAN
-    FM1_VCO_STOCK_SCAN();                                   /* PA-MOD */
+    FM1_VCO_STOCK_SCAN();                                   /* ICARUS */
 #endif
 }
 
@@ -345,7 +345,7 @@ static uint32_t fm1_ble_rf_lut2(const uint8_t *p)
         fm1_rfspi(p[3] + i, p[1], wa);
         fm1_ble_rf_tick();
         wb += fm1_rf_u32(db + 4u * ix[2u * i + 1u]);
-        fm1_rfspi(p[3] + i, p[2], FM1_LUT_W1(p[3] + i, p[2], wb));   /* PA-MOD: hook */
+        fm1_rfspi(p[3] + i, p[2], FM1_LUT_W1(p[3] + i, p[2], wb));   /* ICARUS: hook */
     }
     fm1_ble_rf_stat.lut_words += 2u * n;
     return (uint32_t)(ix + 2u * n - p);

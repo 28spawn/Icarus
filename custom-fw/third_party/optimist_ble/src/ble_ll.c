@@ -9,7 +9,7 @@
  *     exchange (also started by us), version exchange, ping, data length, PHY update (1M only), connection
  *     parameters request (accepted when valid), encryption start (BLE_LL_ENC, else refused); LL_UNKNOWN_RSP for
  *     the rest. */
-#include "pa_prof.h"                     /* PA-MOD: run-time experiment switches */
+#include "pa_prof.h"                     /* ICARUS: run-time experiment switches */
 #include "ble_ll.h"
 #include "ble_hw.h"
 #include "ble_util.h"
@@ -131,7 +131,7 @@ BLE_API int ble_ll_encrypted(void) { return 0; }
 static void ll_diag_enc(uint8_t tx, const uint8_t *p, uint8_t n)
 {
     uint8_t op = p[0], v[8];
-    /* PA-MOD: also the procedures with an instant and the termination (CONNECTION_UPDATE_IND 0, CHANNEL_MAP_IND 1, TERMINATE_IND 2, CONNECTION_PARAM_REQ 0x0F / RSP 0x10):
+    /* ICARUS: also the procedures with an instant and the termination (CONNECTION_UPDATE_IND 0, CHANNEL_MAP_IND 1, TERMINATE_IND 2, CONNECTION_PARAM_REQ 0x0F / RSP 0x10):
      * a CONNECTION_UPDATE_IND is kept as op, interval (2), latency low, timeout (2), instant (2); a CHANNEL_MAP_IND (8 octets) as it is, its instant in the last two. */
     if (op == 0u && n >= 12u) {
         v[0] = op; v[1] = p[4]; v[2] = p[5]; v[3] = p[6]; v[4] = p[8]; v[5] = p[9]; v[6] = p[10]; v[7] = p[11];
@@ -549,7 +549,7 @@ static int ll_version_send(void)                  /* our LL_VERSION_IND, once pe
 }
 
 /* 1 if the instant is still ahead of (or at) the current event: (instant - counter) mod 65536 < 32767 */
-uint32_t pa_ble_late[2];            /* PA-MOD: control PDUs whose instant had already passed when they arrived and that were applied late instead of closing the link: [0] channel map, [1] connection update */
+uint32_t pa_ble_late[2];            /* ICARUS: control PDUs whose instant had already passed when they arrived and that were applied late instead of closing the link: [0] channel map, [1] connection update */
 static int ll_instant_ok(uint16_t instant)
 {
     return (uint16_t)(instant - (uint16_t)(bll.last_evt + 1u)) < 32767u;
@@ -577,7 +577,7 @@ static void ll_rx_ctrl(const uint8_t *p, uint8_t n)
     case LL_CONNECTION_UPDATE_IND: {
         uint16_t instant = ble_rd16(p + 10);
         if (!ll_instant_ok(instant)) {
-            /* PA-MOD: same tolerance as LL_CHANNEL_MAP_IND below (owner's order): Windows sent this one 33 events after its instant and the link died with 0x28 after 31 s.
+            /* ICARUS: same tolerance as LL_CHANNEL_MAP_IND below (owner's order): Windows sent this one 33 events after its instant and the link died with 0x28 after 31 s.
              * Apply two events from now; an instant 64 or more events old is still a protocol error. */
             if (!PA_PROF(PA_BLE_PROF_UPD_LATE) || (uint16_t)((uint16_t)(bll.last_evt + 1u) - instant) >= 64u) {
                 ll_close(BLE_ERR_INSTANT_PASSED);
@@ -606,7 +606,7 @@ static void ll_rx_ctrl(const uint8_t *p, uint8_t n)
         struct ble_chmap m;
         uint16_t instant = ble_rd16(p + 6);
         if (!ll_instant_ok(instant)) {
-            /* PA-MOD: Windows sends this PDU 2..16 events after its own instant (bench readouts: the link was closed with 0x28 in 12 of 13 connections, the radio itself
+            /* ICARUS: Windows sends this PDU 2..16 events after its own instant (bench readouts: the link was closed with 0x28 in 12 of 13 connections, the radio itself
              * clean). A central that is that late has already switched maps, so switching two events from now is right for it and costs a few lost events at worst;
              * closing the link is what made every connection last 5..10 s. A really old instant (>= 64 events behind) is still a protocol error. */
             if (!PA_PROF(PA_BLE_PROF_CHM_LATE) || (uint16_t)((uint16_t)(bll.last_evt + 1u) - instant) >= 64u) {
@@ -698,7 +698,7 @@ static void ll_rx_ctrl(const uint8_t *p, uint8_t n)
 #if BLE_LL_ENC
     case LL_ENC_REQ: {
         uint8_t ltk[16], skd[16], i;
-        if (PA_PROF(PA_BLE_PROF_NO_ENC)) {         /* PA-MOD profile: no encryption on this link (BLE-MIDI does not need it) */
+        if (PA_PROF(PA_BLE_PROF_NO_ENC)) {         /* ICARUS profile: no encryption on this link (BLE-MIDI does not need it) */
             ll_reject(op, BLE_ERR_UNSUPP_REMOTE);
             return;
         }

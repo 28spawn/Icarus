@@ -1,4 +1,4 @@
-"""Project Alpha (PA_SLOT_SYNTH) end to end, through the emulator DLL.
+"""Icarus Synth (PA_SLOT_SYNTH) end to end, through the emulator DLL.
 
 The focused 5-block chain keeps the synthesizer at slot 1:
     DYN -> SYNTH -> AMP -> CAB -> EQ
@@ -34,7 +34,7 @@ os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_synth_"),
 DYN, SYNTH, AMP, CAB, EQ = range(5)
 PRESET_NAMES = ["Metheny Lead", "GR Brass", "Vintage Solo", "Synth Bass",
                 "Liquid Lead", "Analog Fuzz", "GR Texture", "Soft Pad",
-                "Square Lead", "Dark Sequence", "Octave Machine", "Pure GR"]
+                "Square Lead", "Dark Sequence", "Pipe Organ", "Pure GR"]
 
 N = 64
 SR = 44100
@@ -106,7 +106,7 @@ def finite(x):
 
 
 SIG = sine(220.0, 0.2)
-print("=== every Project Alpha factory preset ===")
+print("=== every Icarus factory preset ===")
 for p, name in enumerate(PRESET_NAMES):
     reset()
     d.emu_set_slot_enabled(SYNTH, 1)
@@ -153,5 +153,5 @@ on2, _ = run(SIG)
 dev = abs(rms(on2) - rms(on1)) / max(rms(on1), 1e-9)
 check(dev < 0.15, f"the same preset comes back (level difference {100 * dev:.0f} %)")
 
-print("\n" + ("ALPHA SYNTH OK" if fails == 0 else f"{fails} FAILURE(S)"))
+print("\n" + ("ICARUS SYNTH OK" if fails == 0 else f"{fails} FAILURE(S)"))
 sys.exit(0 if fails == 0 else 1)

@@ -1234,6 +1234,9 @@ void pa_main_loop(void) {
                 const uint32_t n = pa_alnk_isr_entries();
                 if (n != 0u && n == s_chk_n) {
                     if (++s_chk_stale >= 6u) {
+                        {   extern volatile uint32_t g_pa_alnk_in;        /* was the audio interrupt STILL RUNNING (stuck inside) or not entered at all (masked / lost)? */
+                            volatile uint32_t *F = (volatile uint32_t *)(uintptr_t)0x01C7C990u;
+                            F[0] = 0x4D525A46u; F[1] = g_pa_alnk_in; F[2] = *(volatile uint32_t *)(uintptr_t)0x01C7C980u; F[3] = *(volatile uint32_t *)(uintptr_t)0x01C7C984u; }
                         pa_evlog(PA_EV_FREEZE, 2u, g_main_iters);
                         *(volatile uint32_t *)(uintptr_t)0x01C7C3F0u = 0x52455343u;
                         rc_recover_uboot();
@@ -1252,6 +1255,8 @@ void pa_main_loop(void) {
         pa_gpio_scan_poll_1khz();
         pa_usb_dev_poll();                         /* the USB device: enumeration, MIDI in/out (polled) */
         PA_CP(0x11);
+        pa_audio_core_poll_fast();                 /* the synth's pitch search: a slice on every pass, so a pick is answered within a few ms */
+        PA_CP(0x13);
 
         /* The OTA handshake's "enter upgrade" frame asks for the JieLi downloader.
          * This is the app's half of the recovery route: the device reboots into the
@@ -1376,7 +1381,12 @@ void pa_main_loop(void) {
                 static uint32_t ev_btn, ev_view = 0xFFu, ev_preset = 0xFFu, ev_smp;
                 static uint8_t  ev_model[PA_SLOT_COUNT];
                 if (btns != ev_btn) { pa_evlog(PA_EV_BUTTONS, btns, ev_btn); ev_btn = btns; }
-                if (enc)            pa_evlog(PA_EV_ENCODER, (uint32_t)enc, 0u);
+                {   /* the encoder: the clicks of a turn are added up and logged once, 0.5 s after it started (every click used to be an entry, and a minute of
+                     * tuning flooded the 64-entry ring, pushing out the governor, shed and freeze events this log exists for) */
+                    static int32_t ev_enc_acc; static uint32_t ev_enc_t0;
+                    if (enc) { if (ev_enc_acc == 0) ev_enc_t0 = plat_ticks24(); ev_enc_acc += enc; }
+                    if (ev_enc_acc != 0 && (uint32_t)(plat_ticks24() - ev_enc_t0) >= 12000000u) { pa_evlog(PA_EV_ENCODER, (uint32_t)ev_enc_acc, 0u); ev_enc_acc = 0; }
+                }
                 const uint32_t smp_reason = ((volatile uint32_t *)(uintptr_t)0x01C7D200u)[6];
                 if (smp_reason != ev_smp) { pa_evlog(PA_EV_SMP, smp_reason, ev_smp); ev_smp = smp_reason; }
                 (void)ev_model; (void)ev_view; (void)ev_preset;

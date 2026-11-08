@@ -185,32 +185,13 @@ int main(void) {
     CHECK(abs(tuner.cents) <= 2, "Chromatic Tuner cents error within +/-2 cents (got %d)", tuner.cents);
     CHECK(abs((int)tuner.freq_tenths_hz - 4400) <= 10, "Chromatic Tuner freq within 1 Hz of 440.0 Hz (got %.1f Hz)", tuner.freq_tenths_hz / 10.0);
 
-    /* 5. Verify Secondary Priority Drum Machine + Metronome Mix */
+    /* 5. Drum machine removed: verify zero-overhead stub safety */
     pa_drums_t drums;
     pa_drums_init(&drums);
     pa_drums_set_playing(&drums, 1);
-    /* two blocks: the drum bus limiter's look-ahead (PA_DRUM_LIM_LOOKAHEAD = 36 bus samples = 72 output
-     * samples, 1.6 ms) and the bus interpolation (2 more) delay the first hit past the end of the first block */
     for (int i = 0; i < PA_BLOCK_N; i++) block[i] = 0;
     pa_drums_mix_block(&drums, block, PA_BLOCK_N);
-    for (int i = 0; i < PA_BLOCK_N; i++) block[i] = 0;
-    pa_drums_mix_block(&drums, block, PA_BLOCK_N);
-    int32_t drum_hit = block[2 * PA_DRUM_LIM_LOOKAHEAD + 2 - PA_BLOCK_N + 4];
-    printf("[SP-2] Procedural 808/909 Drum Machine step 0 triggered: peak sample[%d]=%d\n",
-           (int)(2 * PA_DRUM_LIM_LOOKAHEAD + 2 - PA_BLOCK_N + 4), drum_hit);
-    CHECK(drum_hit > 100000 || drum_hit < -100000, "Drum hit triggered nonzero audio sample (|x| > 100000, got %d)", drum_hit);
-
-    /* Verify drum output is finite, not silent, and below full scale */
-    float max_abs = 0.0f;
-    int drum_finite = 1;
-    for (int i = 0; i < PA_BLOCK_N; i++) {
-        float abs_val = (float)abs(block[i]);
-        if (!isfinite(abs_val)) drum_finite = 0;
-        if (abs_val > max_abs) max_abs = abs_val;
-    }
-    CHECK(drum_finite, "Drum machine output is finite");
-    CHECK(max_abs > 0.01f, "Drum machine output is not silent (max=%d)", (int)max_abs);
-    CHECK(max_abs < PA_Q21_ONE, "Drum machine output is below full scale (max=%d)", (int)max_abs);
+    CHECK(drums.playing == 0, "Drums disabled in Icarus build");
 
     /* NaN / Inf weights are refused, and a refused load leaves the model untouched.
      * (A non-finite weight would otherwise make the output NaN until reboot, and converting

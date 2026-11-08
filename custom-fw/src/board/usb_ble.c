@@ -139,12 +139,12 @@ static void midi_ev_push(pa_usb_ble_ctx_t *ctx, uint8_t kind, uint8_t a, uint8_t
     ctx->midi_ev_w++;                                                               /* published last */
 }
 
-/* the direct knobs, CC 102..118: (firmware slot, native knob). AMP knobs: GAIN 0, BASS 1, MID 2, TREBLE 3, PRES 4, MASTER 5 (= the stock's Level); DRIVE: DRIVE 0; DLY: TIME 0, FDBK 1, MIX 2;
- * REV: DECAY 0, LOWCUT 1, TONE 2, MIX 3; MOD: RATE 0, DEPTH 1; CAB: LEVEL 0, LOWCUT 1, HICUT 2. */
+/* the direct knobs, CC 102..118: (firmware slot, native knob). AMP knobs: GAIN 0, BASS 1, MID 2, TREBLE 3, PRES 4, MASTER 5 (= the stock's Level);
+ * SYNTH: CUTOFF 0, RESO 1, ENV 2, MIX 3, DRIVE 4, GLIDE 5; DYN: THRESH 0, LEVEL 3; CAB: LEVEL 0, LOWCUT 1, HICUT 2. */
 static const uint8_t k_cc_knob[17][2] = {
     { PA_SLOT_AMP, 0 }, { PA_SLOT_AMP, 5 }, { PA_SLOT_AMP, 1 }, { PA_SLOT_AMP, 2 }, { PA_SLOT_AMP, 3 }, { PA_SLOT_AMP, 4 },       /* 102..107 */
-    { PA_SLOT_DRIVE, 0 }, { PA_SLOT_DELAY, 0 }, { PA_SLOT_DELAY, 1 }, { PA_SLOT_DELAY, 2 },                                       /* 108..111 */
-    { PA_SLOT_REVERB, 0 }, { PA_SLOT_REVERB, 3 }, { PA_SLOT_MOD, 0 }, { PA_SLOT_MOD, 1 },                                         /* 112..115 */
+    { PA_SLOT_SYNTH, 0 }, { PA_SLOT_SYNTH, 1 }, { PA_SLOT_SYNTH, 2 }, { PA_SLOT_SYNTH, 3 },                                       /* 108..111: SYNTH Cutoff, Reso, Env, Mix */
+    { PA_SLOT_SYNTH, 4 }, { PA_SLOT_SYNTH, 5 }, { PA_SLOT_DYNAMICS, 0 }, { PA_SLOT_DYNAMICS, 3 },                                 /* 112..115: SYNTH Drive, Glide; DYN Thresh, Level */
     { PA_SLOT_CAB, 0 }, { PA_SLOT_CAB, 1 }, { PA_SLOT_CAB, 2 },                                                                   /* 116..118 */
 };
 
@@ -152,10 +152,12 @@ static void nrpn_apply(pa_usb_ble_ctx_t *ctx, uint16_t d, int fine) {
     const uint8_t mod = ctx->nrpn_mod, par = ctx->nrpn_par;
     if (mod <= 7u) {                                       /* an effect module */
         const uint8_t slot = (uint8_t)k_cc_module_slot[mod];
+        const uint16_t v7 = (fine && (d >> 7) == 0u) ? d : (uint16_t)(fine ? (d >> 7) : d);
         if (par <= 5u)                    midi_ev_push(ctx, PA_MEV_KNOB, slot, par, (uint16_t)(fine ? d : (uint16_t)(d << 7)));       /* the stock knob p0..p5: same index as the firmware's native knob (see the map) */
         else if (par >= 0x60u && par <= 0x65u) midi_ev_push(ctx, PA_MEV_KNOB, slot, (uint8_t)(par - 0x60u), (uint16_t)(fine ? d : (uint16_t)(d << 7)));
-        else if (par == 0x40u)            midi_ev_push(ctx, PA_MEV_TYPE, slot, 0u, (uint16_t)(fine ? (d >> 7) : d));              /* >= 0x20: the firmware's own id + 0x20 */
-        else if (par == 0x41u)            midi_ev_push(ctx, PA_MEV_SLOT_SET, slot, 0u, (uint16_t)((fine ? (d >> 7) : d) >= 64u));
+        else if (slot == PA_SLOT_SYNTH && par >= 0x10u && par <= 0x3Du) midi_ev_push(ctx, PA_MEV_SYNTH_PARAM, (uint8_t)(par - 0x10u), 0u, d);
+        else if (par == 0x40u)            midi_ev_push(ctx, PA_MEV_TYPE, slot, 0u, v7);                                               /* >= 0x20: the firmware's own id + 0x20 */
+        else if (par == 0x41u)            midi_ev_push(ctx, PA_MEV_SLOT_SET, slot, 0u, (uint16_t)(v7 >= 64u));
     } else if (mod == 8u)  midi_ev_push(ctx, PA_MEV_GLOBAL, par, 0u, (uint16_t)(fine ? d : d));
     else if (mod == 9u)    midi_ev_push(ctx, PA_MEV_GROOVE, par, 0u, d);
     else if (mod == 10u)   midi_ev_push(ctx, PA_MEV_PRESET_PARAM, par, 0u, d);
@@ -168,9 +170,11 @@ static void handle_midi_cc(pa_usb_ble_ctx_t *ctx, uint8_t d1, uint8_t d2) {
     if (d1 == 6u || d1 == 38u) {
         if (!ctx->nrpn_have_mod || !ctx->nrpn_have_par) return;                     /* a data entry with nothing selected: not ours */
         if (d1 == 6u) {                                                             /* the high half (or the whole value, if the low half never follows) */
-            ctx->nrpn_hi = d2; ctx->nrpn_have_hi = 1u;
+            ctx->nrpn_hi = d2; ctx->nrpn_have_hi = 2u;
             nrpn_apply(ctx, d2, 0);
-        } else if (ctx->nrpn_have_hi) {                                             /* the low half: the full 14-bit value */
+        } else if (ctx->nrpn_have_hi) {                                             /* the low half: the full 14-bit value replaces an unpopped CC 6 event */
+            if (ctx->nrpn_have_hi == 2u && ctx->midi_ev_w != ctx->midi_ev_r) ctx->midi_ev_w--;
+            ctx->nrpn_have_hi = 1u;
             nrpn_apply(ctx, (uint16_t)(((uint16_t)ctx->nrpn_hi << 7) | d2), 1);
         }
         return;

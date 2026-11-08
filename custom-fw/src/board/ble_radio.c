@@ -77,7 +77,7 @@ extern void plat_wdt_feed(void);
 extern uint32_t _bleb_start[], _bleb_end[];
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-function"
-/* The VCO search's two waits (hal/fm1_ble_rf.h, overridable by PA-MOD): wait 5 * (system clock / reference) loop passes between the pulse edges and 100 * that
+/* The VCO search's two waits (hal/fm1_ble_rf.h, overridable by ICARUS): wait 5 * (system clock / reference) loop passes between the pulse edges and 100 * that
    before the measurement, the reference being 8 MHz when bit 0 of 0x40200 is set, else 4 MHz. Set at boot from that rule (pa_ble_radio_boot). */
 static volatile uint32_t pa_vco_edge_us = 2u, pa_vco_settle_us = 50u;
 #define FM1_VCO_EDGE_US pa_vco_edge_us

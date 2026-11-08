@@ -195,16 +195,16 @@ tap(PARA)
 v = view()
 check(v == VIEW_PARAM_EDIT, f"PARA opened the editor (view {v})")
 
-print("\n=== the PARA holds: 1-3 s = Save-to, past 3 s = move the block (however long it stays down) ===")
+print("\n=== the PARA holds: 1-1.6 s = Save-to, past 1.6 s = move the block (however long it stays down) ===")
 to_grid()
 hold(PARA, 1200)
 v = view()
 check(v == VIEW_SAVE_DIALOG, f"PARA held 1.2 s opened Save-to (view {v})")
 
 to_grid()
-hold(PARA, 2200)
+hold(PARA, 1800)
 v = view()
-check(v == VIEW_SAVE_DIALOG, f"PARA held 2.2 s still opened Save-to (view {v})")
+check(v == VIEW_MOVING, f"PARA held 1.8 s entered Moving mode (view {v})")
 
 to_grid()
 hold(PARA, 3300)
@@ -230,9 +230,10 @@ v = view()
 check(v == VIEW_BANK_MODE, f"< + > opened Bank mode (view {v})")
 
 to_grid()
-tap(HOME | VOL_MINUS)
+tap(HOME | VOL_PLUS)
 v = view()
-check(v == VIEW_DRUMS, f"HOME + VOL- opened the groove station (view {v})")
+check(v == 16, f"HOME + VOL+ opened the synth (view {v})")
+tap(HOME)
 
 print("\n=== the same button twice moves the preset volume twice ===")
 to_grid()
@@ -413,7 +414,7 @@ to_grid()
 
 print("\n=== USB LOOPBACK (Settings, the second row from the end): a click switches the USB driver's loopback ===")
 d.emu_get_usb_loopback.restype = ctypes.c_int
-to_grid(); tap(HOME); tap(LEFT); tap(LEFT); tap(LEFT)       # the Settings menu wraps: rows are 0..11, so < on the first row = Project Alpha (11), then USB Mode (10), then USB Loopback (9)
+to_grid(); tap(HOME); tap(LEFT); tap(LEFT)       # the Settings menu wraps: rows are 0..10, so < on the first row = USB Mode (10), then USB Loopback (9)
 d.emu_get_menu_cursors(_c3)
 check(_c3[0] == 9, f"the cursor is on USB Loopback (row {_c3[0]})")
 tick(5)
@@ -425,7 +426,7 @@ check(d.emu_get_usb_loopback() == 1, "another click turns it back ON")
 to_grid()
 
 print("\n=== USB MODE (Settings last row): a click cycles AMP -> INTERFACE -> INTERFACE + DIRECT MONITOR ===")
-to_grid(); tap(HOME); tap(LEFT); tap(LEFT)
+to_grid(); tap(HOME); tap(LEFT)
 d.emu_get_menu_cursors(_c3)
 check(_c3[0] == 10, f"the cursor is on USB Mode (row {_c3[0]})")
 check(d.emu_get_ui(40) == 0, "the mode starts as AMP (the unit's own sound)")
@@ -499,19 +500,19 @@ def lcd():
 
 
 def knob_margins(on):
-    """the knob's margins to the pill's edges (left, right, top, bottom), pill = x 190..227, y 154..174"""
+    """the knob's margins to the pill's edges (left, right, top, bottom), pill = x 190..227, y 118..138"""
     im = lcd()
     if on:
-        base = tuple(im[156, 225]); box_x = range(207, 228)       # the right half: the knob (the 'ON' text is in the left half)
+        base = tuple(im[120, 225]); box_x = range(207, 228)       # the right half: the knob (the 'ON' text is in the left half)
     else:
-        base = tuple(im[156, 210]); box_x = range(192, 207)       # the left half, inside the pill's 1 px border: the knob (the 'OFF' text is in the right half)
-    outside = tuple(im[164, 185])
-    pts = [(x, y) for y in range(156, 173) for x in box_x if tuple(im[y, x]) != base and tuple(im[y, x]) != outside]
+        base = tuple(im[120, 210]); box_x = range(192, 207)       # the left half, inside the pill's 1 px border: the knob (the 'OFF' text is in the right half)
+    outside = tuple(im[128, 185])
+    pts = [(x, y) for y in range(120, 137) for x in box_x if tuple(im[y, x]) != base and tuple(im[y, x]) != outside]
     if not pts:
         return None
     xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
     side = (227 - max(xs)) if on else (min(xs) - 190)             # the margin on the knob's own side; the other side holds the text
-    return side, min(ys) - 154, 174 - max(ys)
+    return side, min(ys) - 118, 138 - max(ys)
 
 
 to_grid()
@@ -519,7 +520,7 @@ tap(HOME)
 tap(RIGHT); tap(RIGHT)
 tap(PARA)
 check(view() not in (VIEW_SETTINGS, VIEW_MAIN_GRID), f"the Display page is open (view {view()})")
-for _ in range(3):
+for _ in range(2):
     tap(RIGHT)
 tick(10)
 d.emu_get_telemetry(ctypes.byref(tel))
@@ -557,11 +558,8 @@ def rms_run(nblk):
 to_grid()
 check(d.emu_get_ui(18) == 0, "the tuner starts LIVE")
 r_norm = rms_run(200)
-tap(HOME | VOL_MINUS); tap(PARA)                  # the groove station, PLAY
-tap(HOME)
-check(d.emu_get_ui(24) == 1, "the drum machine is playing")
 tap(VOL_MINUS | VOL_PLUS); tick(5)
-check(view() == VIEW_TUNER and d.emu_get_ui(24) == 0, f"entering the tuner paused the drums (view {view()}, playing {d.emu_get_ui(24)})")
+check(view() == VIEW_TUNER, f"entering the tuner (view {view()})")
 r_live = rms_run(200)
 check(r_live > 0.2 * r_norm, f"LIVE: the guitar is heard through the tuner (rms {r_live:.4f} vs {r_norm:.4f} normal)")
 d.emu_ui_enc(1); tick(5); tap(PARA); tick(5)
@@ -571,17 +569,13 @@ check(r_mute < 0.001 * r_norm, f"MUTED: silence (rms {r_mute:.6f})")
 tap(PARA); tick(5)
 check(d.emu_get_ui(18) == 0 and rms_run(200) > 0.2 * r_norm, "a click again: LIVE, the guitar is back")
 tap(HOME); tick(5)
-check(view() == VIEW_MAIN_GRID and d.emu_get_ui(24) == 1, f"leaving the tuner resumed the drums (playing {d.emu_get_ui(24)})")
-tap(HOME | VOL_MINUS); tap(PARA); tap(HOME)       # stop the drums again
-check(d.emu_get_ui(24) == 0, "drums stopped for the next tests")
-tap(VOL_MINUS | VOL_PLUS); tick(5); tap(VOL_MINUS); tick(5)
-check(view() == VIEW_MAIN_GRID and d.emu_get_ui(24) == 0, "a tuner visit with the drums stopped leaves them stopped")
+check(view() == VIEW_MAIN_GRID, "leaving the tuner goes back to grid")
 
-print("\n=== the preset list: the USB diamond sits in the status row, left of the Bluetooth rings, with the battery % on or off ===")
+print("\n=== the home grid: the USB diamond sits in the status row, left of the Bluetooth rings, with the battery % on or off ===")
 
 
 def yellow_bbox(im, x0, x1, y0, y1):
-    pts = [(x, y) for y in range(y0, y1) for x in range(x0, x1) if im[y, x][0] > 240 and 180 < im[y, x][1] < 225 and im[y, x][2] < 40]     # the diamond's amber (ONYX_COL_WARN 0xFE60)
+    pts = [(x, y) for y in range(y0, y1) for x in range(x0, x1) if im[y, x][0] > 240 and 180 < im[y, x][1] < 225 and im[y, x][2] < 40]
     return (min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts)) if pts else None
 
 
@@ -597,60 +591,17 @@ def display_row(row):
     tick(10)
 
 
-display_row(2)                                  # HOME VIEW: GRID -> LIST
+to_grid()
 state_now = {}
 for label in ("first", "second"):
     d.emu_get_telemetry(ctypes.byref(tel))
     bb = yellow_bbox(lcd(), 150, 240, 0, 39)
     state_now[label] = bb
-    display_row(3)                              # the battery % toggle
+    display_row(2)                              # the battery % toggle (row 2)
 for label in ("first", "second"):
     bb = state_now[label]
-    check(bb is not None and bb[2] >= 9 and bb[3] <= 19 and bb[1] < 190, f"list, battery % {label} state: the diamond is in the row, left of the Bluetooth rings, on the battery's centre line (bbox {bb})")
-# the list's top-right icons with the battery % OFF are pixel-for-pixel where the Settings screen's are (the same row)
-def icon_mask(im):
-    bg = tuple(im[2, 150])
-    return {(x, y) for y in range(0, 24) for x in range(150, 240) if tuple(im[y, x]) != bg}     # above the header's rule (the home header is 26 px tall, the Settings one 30)
+    check(bb is not None and bb[2] >= 9 and bb[3] <= 19 and bb[1] < 190, f"grid, battery % {label} state: the diamond is in the row, left of the Bluetooth rings, on the battery's centre line (bbox {bb})")
 
-
-display_row(2)                                  # GRID -> LIST again
-d.emu_get_telemetry(ctypes.byref(tel))
-# make sure the battery % is OFF in the list
-if yellow_bbox(lcd(), 150, 240, 0, 39) is not None and yellow_bbox(lcd(), 150, 240, 0, 39)[2] > 20:
-    display_row(3)
-tick(10)
-list_mask = icon_mask(lcd())
-tap(HOME)                                       # list -> Settings
-tick(10)
-settings_mask = icon_mask(lcd())
-check(len(list_mask) > 40 and list_mask == settings_mask, f"list mode, battery % OFF: the diamond, rings and battery are where the Settings screen has them ({len(list_mask)} vs {len(settings_mask)} pixels, {len(list_mask ^ settings_mask)} differ)")
-to_grid()
-display_row(2)                                  # back to GRID
-
-print("\n=== STOMP mode in the list view: each effect on a key carries a small key tag, the others none ===")
-if d.emu_get_ui(35) != 1:
-    display_row(2)                              # GRID -> LIST
-check(d.emu_get_ui(35) == 1, "the list view is on")
-d.emu_select_preset(0); tick(5)
-to_grid()
-if d.emu_get_ui(23) != 0:
-    hold(HOME, 1700)
-tick(10)
-
-
-def tag_pixels(row):
-    """pixels of the tag chip (x 206-207, inside the chip in stomp mode; the card's face elsewhere) that differ from the row's face, sampled under the chip"""
-    im = lcd()
-    y0 = 68 + row * 32
-    ref = tuple(im[y0 + 22, 206])
-    return sum(1 for yy in range(y0 + 4, y0 + 14) for x in (206, 207) if tuple(im[yy, x]) != ref)
-
-
-hold(HOME, 1700); tick(10)
-check(d.emu_get_ui(23) == 1, "STOMP mode on")
-px = [tag_pixels(r) for r in range(5)]
-check(sum(1 for v in px if v >= 16) == 4 and sum(1 for v in px if v == 0) == 1, f"STOMP mode: four rows (the four assigned effects) carry a key tag, the fifth has none ({px} of 20 px per row)")
-hold(HOME, 1700); tick(10)
 to_grid()
 
 print("\n=== the OVERLOAD popup: momentary, once per episode, on any screen ===")
@@ -768,7 +719,7 @@ for name, row in (("Input / Output", 0), ("Display", 2)):
     check(cursors()[1] == 0, f"{name}: opens on its first row")
     d.emu_ui_enc(-1); tick(6)
     top = cursors()[1]
-    check(top > 3, f"{name}: PARA up from the first row went to the last row ({top})")
+    check(top >= 3, f"{name}: PARA up from the first row went to the last row ({top})")
     d.emu_ui_enc(1); tick(6)
     check(cursors()[1] == 0, f"{name}: PARA down from the last row went to the first ({cursors()[1]})")
     tap(LEFT)

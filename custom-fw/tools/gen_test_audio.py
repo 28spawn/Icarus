@@ -194,14 +194,7 @@ def phrase_bass_line():
     return render_events(ev, t + 1.0, 6000)
 
 
-PHRASES = {
-    "di_clean_chords.wav": phrase_clean_chords,
-    "di_arpeggio.wav": phrase_arpeggio,
-    "di_rock_riff.wav": phrase_rock_riff,
-    "di_metal_chug.wav": phrase_metal_chug,
-    "di_blues_lead.wav": phrase_blues_lead,
-    "di_bass_line.wav": phrase_bass_line,
-}
+PHRASES = {}
 
 
 # ---- cabinet IRs ---------------------------------------------------------------------
@@ -439,3 +432,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

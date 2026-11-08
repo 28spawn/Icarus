@@ -105,6 +105,20 @@ void pa_cp(uint32_t n);
 #else
 #define PA_CP(n) ((void)0)
 #endif
+/* PA_SWCP(n): the last step of a preset / amp swap (runs in the audio interrupt): SRAM 0x01C7C980. A swap that kills the CPU leaves the last step it reached there. */
+#if !defined(PA_HOST_BUILD) && !defined(PA_HOST_SIM)
+#define PA_SWCP(n) ((void)(*(volatile uint32_t *)0x01C7C980u = (uint32_t)(n)))
+#else
+#define PA_SWCP(n) ((void)0)
+#endif
+/* PA_FLCP(n): the last step of a flash operation (the quiesce, the driver, the save): SRAM 0x01C7C984; 0x01C7C988 counts the steps, 0x01C7C98C holds the flash address of the operation. */
+#if !defined(PA_HOST_BUILD) && !defined(PA_HOST_SIM)
+#define PA_FLCP(n) do { *(volatile uint32_t *)0x01C7C984u = (uint32_t)(n); *(volatile uint32_t *)0x01C7C988u += 1u; } while (0)
+#define PA_FLADDR(a) ((void)(*(volatile uint32_t *)0x01C7C98Cu = (uint32_t)(a)))
+#else
+#define PA_FLCP(n) ((void)0)
+#define PA_FLADDR(a) ((void)0)
+#endif
 /* PA_ISR_CP(n): one store of a step number to SRAM 0x01C7C3F8, safe inside an interrupt. After a
  * stall and the watchdog reset into download mode, `pa_transporter.py crash` shows the last one:
  * the step the audio interrupt was in. */

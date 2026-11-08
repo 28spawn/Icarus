@@ -20,7 +20,7 @@ dll = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "pocket_am
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import mvave_device as M  # noqa: E402
 
-page = open(os.path.join(ROOT, "web", "Onyx_Web_Editor.html"), encoding="utf-8").read()
+page = open(os.path.join(ROOT, "web", "Icarus_Web_Editor.html"), encoding="utf-8").read()
 script = re.search(r"<script>(.*)</script>", page, re.S).group(1)
 tmp = tempfile.mkdtemp(prefix="pa_page_js_")
 open(os.path.join(tmp, "page.js"), "w", encoding="utf-8").write(script)
@@ -268,7 +268,7 @@ check([o["kind"] for o in bad] == ["refused"] * 5 and all(o["reply"] is None for
 fin = ota([req(0xE0000000, 8), req(0xF0000000, 8)])
 check([o["kind"] for o in fin] == ["mark", "mark"] and fin[1]["reply"] == my_frame(0xF0000000, 8, 0, b"success" + bytes([0])), "the step-1 and step-2 finish addresses are answered success")
 check(ota([[ ]][0:0]) == [], "no requests, no replies")
-src = open(os.path.join(ROOT, "web", "Onyx_Web_Editor.html"), encoding="utf-8").read()
+src = open(os.path.join(ROOT, "web", "Icarus_Web_Editor.html"), encoding="utf-8").read()
 check("OTA_SOFTKEY = [0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7]" in src and "link.send(OTA_SOFTKEY)" in src, "the download-mode button sends the 7D soft key (7F is the update session)")
 check('id="fwInstall"' in src and 'id="fwRestore"' in src and 'OFFICIAL_SHA256 = "9584e81da98215e8e70ddffc28311423ceaa1a5a8a12a478dc68f4679e10902b"' in src, "the Firmware tab has the one-click install and restore, and pins the original's SHA-256")
 orig = os.path.expanduser("~/Downloads/Pocket AMP.fwsc")
@@ -337,7 +337,7 @@ check("error" in js(["namJson", list(b"{not json"), "x.nam"])[0], "a file that i
 
 print("=== the firmware files the page accepts ===")
 import jl_app_area as JA2
-fw = os.path.join(ROOT, "Project_Alpha.fwsc"); ab = os.path.join(ROOT, "Project_Alpha_app_area.bin")
+fw = os.path.join(ROOT, "Icarus.fwsc"); ab = os.path.join(ROOT, "Icarus_app_area.bin")
 if os.path.exists(fw) and os.path.exists(ab):
     blob = open(fw, "rb").read(); want = open(ab, "rb").read()
     r = js(["areaFromFile", list(blob)])[0]
@@ -369,7 +369,7 @@ check("error" in js(["stripNam", list(b"WAVE" + bytes(9000))])[0], "a WAVE blob 
 check("error" in js(["stripNam", list(b'{"version": "0.5.4"}' + bytes(100))])[0], "a .nam JSON file is refused (no conversion here)")
 
 print("=== clear all captures / cabinets ===")
-page_src = open(os.path.join(ROOT, "web", "Onyx_Web_Editor.html"), encoding="utf-8").read()
+page_src = open(os.path.join(ROOT, "web", "Icarus_Web_Editor.html"), encoding="utf-8").read()
 check('id="namClear"' in page_src and 'id="cabClear"' in page_src, "the page has a clear button for captures and one for cabinets")
 check("prompt(\"Type CLEAR" in page_src, "clearing asks for the typed word CLEAR first")
 check(js(["buildFrame", 82, [2, 1, 0]])[0][-1] == 0xF7, "the clear command (cmd 82, op 2) is a normal frame")

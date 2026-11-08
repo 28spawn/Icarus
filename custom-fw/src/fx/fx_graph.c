@@ -8,7 +8,7 @@
 #include "pa_dsp_cost.h"
 #include "../dsp/fixedpoint.h"
 #include "pa_biquad.h"
-#include "../effects/project_alpha/alpha.h"
+#include "../effects/icarus/icarus.h"
 #if !defined(PA_HOST_BUILD) && !defined(PA_HOST_SIM)
 #include "pa_plat.h"                    /* PA_ISR_CP: bench breadcrumbs for the audio interrupt */
 #endif
@@ -273,6 +273,10 @@ void pa_fx_chain_collect_garbage(pa_fx_chain_t *chain) {
     for (int s = 0; s < PA_SLOT_COUNT; s++) {
         fx_node_t *nd = chain->slots[s];
         if (nd && nd->pending_destroy && !nd->active && !nd->tail_draining) {
+            if (s == PA_SLOT_SYNTH && nd->state) {
+                icarus_state_t *as = (icarus_state_t *)nd->state;
+                if (as->ui_ttl > 0u) continue; /* Keep state while Icarus UI is actively viewed */
+            }
             nd->pending_destroy = 0;
             if (nd->destroy) nd->destroy(nd);
         }
@@ -315,7 +319,7 @@ void pa_fx_chain_set_slot_type(pa_fx_chain_t *chain, pa_fx_slot_id_t slot, uint8
 uint8_t pa_fx_slot_type_count(pa_fx_slot_id_t slot) {
     switch (slot) {
         case PA_SLOT_DYNAMICS: return 5;     /* + COMP (no gate) */
-        case PA_SLOT_SYNTH:    return 12;    /* 12 Project Alpha Factory Presets */
+        case PA_SLOT_SYNTH:    return 12;    /* 12 Icarus Synth Factory Presets */
         case PA_SLOT_EQ:       return 3;     /* 5-BAND, LOW/HIGH CUT, PARAMETRIC-3 */
         default:               return 1;
     }
@@ -751,20 +755,20 @@ static void pa_lvl_width(const int32_t *l, const int32_t *r, int n) {
 #define pa_lvl_width(l, r, n) ((void)0)
 #endif
 
-__attribute__((weak)) alpha_state_t *alpha_get_active(void) { return 0; }
-__attribute__((weak)) void alpha_process_block_q21(alpha_state_t *s, const int32_t *in_mono_q21, int32_t *out_L_q21, int32_t *out_R_q21, int n) { (void)s; (void)in_mono_q21; (void)out_L_q21; (void)out_R_q21; (void)n; }
-__attribute__((weak)) void alpha_post_output_gate_q21(alpha_state_t *s, int32_t *buf_L_q21, int32_t *buf_R_q21, int n) { (void)s; (void)buf_L_q21; (void)buf_R_q21; (void)n; }
+__attribute__((weak)) icarus_state_t *icarus_get_active(void) { return 0; }
+__attribute__((weak)) void icarus_process_block_q21(icarus_state_t *s, const int32_t *in_mono_q21, int32_t *out_L_q21, int32_t *out_R_q21, int n) { (void)s; (void)in_mono_q21; (void)out_L_q21; (void)out_R_q21; (void)n; }
+__attribute__((weak)) void icarus_post_output_gate_q21(icarus_state_t *s, int32_t *buf_L_q21, int32_t *buf_R_q21, int n) { (void)s; (void)buf_L_q21; (void)buf_R_q21; (void)n; }
 
-/* Does Project Alpha actually run in this chain pass?
+/* Does Icarus Synth actually run in this chain pass?
  *
- * Project Alpha is the PA_SLOT_SYNTH node. The standalone call in chain_condition() exists only for chains built without that node
- * (the host suites that drive alpha directly): a chain that HAS the node must let run_slot_range() run it at its chain position and
+ * Icarus Synth is the PA_SLOT_SYNTH node. The standalone call in chain_condition() exists only for chains built without that node
+ * (the host suites that drive icarus directly): a chain that HAS the node must let run_slot_range() run it at its chain position and
  * must never run it a second time. In particular, a bypassed node keeps its state until pa_fx_chain_collect_garbage() frees it, so
- * testing `alpha->enabled` alone would keep the synth (and its CPU cost) alive after the block was switched off. */
-static inline int alpha_runs_in_chain(const pa_fx_chain_t *chain, const alpha_state_t *alpha) {
-    if (!alpha || !alpha->enabled) return 0;
+ * testing `icarus->enabled` alone would keep the synth (and its CPU cost) alive after the block was switched off. */
+static inline int icarus_runs_in_chain(const pa_fx_chain_t *chain, const icarus_state_t *icarus) {
+    if (!icarus || !icarus->enabled) return 0;
     const fx_node_t *synth = chain->slots[PA_SLOT_SYNTH];
-    if (synth) return (synth->state == alpha && synth->active) ? 1 : 0;
+    if (synth) return (synth->state == icarus && synth->active) ? 1 : 0;
     return 1;                                                             /* no SYNTH node: the standalone path owns it */
 }
 
@@ -790,12 +794,12 @@ static void chain_condition(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R
     PA_ISR_CP(0x31);
     if (chain->gate_thresh_q21) run_global_gate(chain, buf_L, n);
     PA_ISR_CP(0x32);
-    /* If Project Alpha is invoked standalone outside PA_SLOT_SYNTH (e.g. unit tests without fx_synth_new active),
+    /* If Icarus Synth is invoked standalone outside PA_SLOT_SYNTH (e.g. unit tests without fx_synth_new active),
      * process here; when PA_SLOT_SYNTH is present in the chain, run_slot_range executes it at its chain position! */
-    alpha_state_t *alpha = alpha_get_active();
+    icarus_state_t *icarus = icarus_get_active();
     const int synth_slot_present = (chain->slots[PA_SLOT_SYNTH] != 0);
-    if (alpha && !synth_slot_present && alpha_runs_in_chain(chain, alpha)) {
-        alpha_process_block_q21(alpha, buf_L, buf_L, buf_R, n);
+    if (icarus && !synth_slot_present && icarus_runs_in_chain(chain, icarus)) {
+        icarus_process_block_q21(icarus, buf_L, buf_L, buf_R, n);
         if (chain->meter) cpu_meter_add(chain->meter, PA_ST_DRIVE, 85000u);
     } else if (buf_R) {
         for (int i = 0; i < n; i++) buf_R[i] = buf_L[i];
@@ -830,9 +834,9 @@ static void chain_tail(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int
 
     /* The limiter needs the whole block, so it runs after the per-sample loops. */
     {
-        alpha_state_t *alpha = alpha_get_active();
-        if (alpha_runs_in_chain(chain, alpha)) {
-            alpha_post_output_gate_q21(alpha, buf_L, buf_R, n);
+        icarus_state_t *icarus = icarus_get_active();
+        if (icarus_runs_in_chain(chain, icarus)) {
+            icarus_post_output_gate_q21(icarus, buf_L, buf_R, n);
         }
     }
     apply_output_limiter_stereo(chain, buf_L, buf_R, n);
@@ -876,8 +880,8 @@ void pa_fx_chain_set_core1_budget_us(uint32_t us) { s_core1_budget_us = us ? us 
 /* The first slot_order index core 1 runs: the amp at cut-1, plus as many of the active slots in front of it as fit its budget. The rest
  * (a drive pedal, the dynamics) runs on core 0 just before the hand-over, so neither core is asked for more than a block. */
 static int choose_core1_lo(const pa_fx_chain_t *chain, int cut) {
-    if (alpha_runs_in_chain(chain, alpha_get_active())) {
-        return cut - 1;                                                   /* Project Alpha runs on Core 0; Core 1 runs the NAM amp alone */
+    if (icarus_runs_in_chain(chain, icarus_get_active())) {
+        return cut - 1;                                                   /* Icarus Synth runs on Core 0; Core 1 runs the NAM amp alone */
     }
     uint32_t cost = 30u + k_slot_cost_us[PA_SLOT_AMP];                    /* input conditioning + the amp */
     int lo = cut - 1;

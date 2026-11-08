@@ -10,6 +10,12 @@
 #include "../../include/pa_user_nam.h"
 #include "../dsp/fixedpoint.h"
 #include "../../include/pa_wavenet.h"
+#if !defined(PA_HOST_BUILD) && !defined(PA_HOST_SIM)
+#include "../../include/pa_plat.h"     /* PA_SWCP: the swap's last-step store */
+#endif
+#ifndef PA_SWCP
+#define PA_SWCP(n) ((void)0)
+#endif
 
 static pa_preset_t g_presets[PA_PRESET_COUNT];
 static uint8_t     g_presets_initialized = 0;
@@ -435,15 +441,19 @@ __attribute__((weak)) void pa_nam_prewarm(const pa_nam_model_t *m) { (void)m; }
 /* NOT click-safe on its own: call pa_preset_apply_smooth() from the UI thread. */
 void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
     if (!p || !chain) return;
+    PA_SWCP(0x10);
     pa_fx_chain_reset_states(chain);
+    PA_SWCP(0x11);
     for (uint8_t s = 0; s < PA_SLOT_COUNT; s++) {
         chain->slot_order[s] = p->slot_order[s] < PA_SLOT_COUNT ? p->slot_order[s] : s;
         int en = (p->slot_enable_mask & (1u << s)) ? 1 : 0;
+        PA_SWCP(0x20 + s);
         pa_fx_chain_set_slot_enabled_now(chain, (pa_fx_slot_id_t)s, en);   /* chain is muted here */
+        PA_SWCP(0x30 + s);
         if (s != PA_SLOT_AMP && s != PA_SLOT_CAB) {                 /* the EQ and SYNTH have types too */
             pa_fx_chain_set_slot_type(chain, (pa_fx_slot_id_t)s, p->slot_type[s]);   /* IMP-13 */
         }
-        /* For PA_SLOT_SYNTH, loading the Project Alpha preset via set_slot_type already populates all 40+
+        /* For PA_SLOT_SYNTH, loading the Icarus Synth preset via set_slot_type already populates all 40+
          * synthesizer parameters; only apply generic 6-knob overrides for non-SYNTH slots (or when user edits SYNTH knobs). */
         if (s != PA_SLOT_SYNTH) {
             for (int k = 0; k < k_slot_nparams[s]; k++) {
@@ -453,7 +463,9 @@ void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
     }
     pa_fx_chain_set_preset_vol(chain, p->preset_vol);
     pa_fx_chain_set_input_gain(chain, pa_q21_from_trim_db(p->input_trim_db));
+    PA_SWCP(0x40);
     pa_fx_chain_relink_ordered(chain);
+    PA_SWCP(0x41);
 
     /* Load stock amp model or user NAM capture designated for this preset */
     extern pa_wavenet_model_t g_wn_model;
@@ -461,7 +473,9 @@ void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
     if (chain->slots[PA_SLOT_AMP] && chain->slots[PA_SLOT_AMP]->state) {
         uint8_t effective_model = p->amp_model_idx;
         if (p->amp_model_idx < PA_STOCK_AMP_COUNT) {
+            PA_SWCP(0x50);
             pa_stock_load_amp(p->amp_model_idx, (pa_nam_model_t *)chain->slots[PA_SLOT_AMP]->state, NULL);
+            PA_SWCP(0x51);
             g_active_amp_engine = 0;
             g_wn_model.active = 0;
         } else {
@@ -474,13 +488,18 @@ void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
                 effective_model = 0;
             }
         }
+        PA_SWCP(0x52);
         pa_amp_set_model_profile(effective_model);     /* Blk-01: voicing + output trim */
+        PA_SWCP(0x53);
         for (int k = 0; k < 6; k++)                      /* re-apply knobs on the new profile */
             pa_fx_chain_set_param(chain, PA_SLOT_AMP, k, pa_q16_to_q21(p->params[PA_SLOT_AMP][k]));
+        PA_SWCP(0x54);
         if (g_active_amp_engine == 0) {
             pa_nam_prewarm((const pa_nam_model_t *)chain->slots[PA_SLOT_AMP]->state);
         }
+        PA_SWCP(0x55);
     }
+    PA_SWCP(0x60);
     if (chain->slots[PA_SLOT_CAB]) {
         static int32_t c_taps[PA_STOCK_CAB_TAPS];        /* static: 4 KB off the UI stack */
         uint32_t n_taps = PA_STOCK_CAB_TAPS;
@@ -489,6 +508,7 @@ void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
             fx_cab_ir_set_stock_trim(chain->slots[PA_SLOT_CAB], p->cab_model_idx);
         }
     }
+    PA_SWCP(0x61);
 }
 
 /* Blk-02: fade the output to silence, apply the preset, fade back in (~6 ms out +

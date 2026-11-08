@@ -1,4 +1,4 @@
-/* third_party/optimist_ble/src/pa_prof.h (PA-MOD) - the run-time experiment switches of the Pocket Amp firmware (custom-fw/include/pa_ble_diag.h, profile bits).
+/* third_party/optimist_ble/src/pa_prof.h (ICARUS) - the run-time experiment switches of the Pocket Amp firmware (custom-fw/include/pa_ble_diag.h, profile bits).
  * In the firmware (PA_BLE_GLUE, defined by src/board/ble_radio.c before it includes this stack) PA_PROF(bit) reads the live profile word; built alone (the stack's own
  * tests) it answers with the defaults. */
 #ifndef PA_PROF_H

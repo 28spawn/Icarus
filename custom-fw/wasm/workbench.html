@@ -414,8 +414,8 @@
 </head>
 <body>
 <header>
-  <h1>Pocket Amp Workbench</h1>
-  <span class="sub">the firmware itself, compiled to WebAssembly</span>
+  <h1>Icarus Workbench</h1>
+  <span class="sub">Icarus Custom Firmware, compiled to WebAssembly</span>
   <span class="badge" id="state">starting</span>
   <span class="badge" id="budget">SRAM &mdash;</span>
   <span class="badge" id="cpu">CPU &mdash;</span>
@@ -491,7 +491,7 @@
           <button class="act primary" id="audioOn">Start audio</button>
           <button class="act" id="comboTuner" title="VOL- &amp; VOL+ together">Tuner</button>
           <button class="act" id="comboBank" title="&lt; &amp; &gt; together">Bank</button>
-          <button class="act" id="comboDrums" title="HOME &amp; VOL- together">Groove</button>
+          <button class="act" id="comboSynth" title="HOME &amp; VOL+ together">Synth</button>
           <button class="act" id="paraClick" title="a quick PARA press (the block editor)">PARA</button>
           <button class="act" id="paraTurnL" title="turn the PARA encoder left">&#9664;</button>
           <button class="act" id="paraTurnR" title="turn the PARA encoder right">&#9654;</button>
@@ -571,8 +571,7 @@
           <tr><td>DSP SRAM (the device's own pool)</td><td id="t_sram">&mdash;</td></tr>
           <tr><td>DSP CPU load</td><td id="t_cpu">&mdash;</td></tr>
           <tr><td>Tuner</td><td id="t_tuner">&mdash;</td></tr>
-          <tr><td>Groove</td><td id="t_drums">&mdash;</td></tr>
-          <tr><td>Level (the firmware's meters)</td><td id="t_inout">&mdash;</td></tr>
+                    <tr><td>Level (the firmware's meters)</td><td id="t_inout">&mdash;</td></tr>
           <tr><td>User NAM captures</td><td id="t_nam">&mdash;</td></tr>
         </table>
       </div>
@@ -1042,7 +1041,7 @@ function paint(lcd16) {
  * every name from index 1 onwards was wrong: MOVING was called HOME LIST,
  * the tuner was called BANK, the groove station was called SETTINGS. */
 const VIEWS = ['HOME GRID','MOVING','BLOCK EDITOR','BANK','TUNER','SAVE','SAVED',
-               'GROOVE','SETTINGS','GLOBAL EQ','IN/OUT','DISPLAY','PERFORMANCE','SYSTEM','RESET'];
+               'GROOVE','SETTINGS','GLOBAL EQ','IN/OUT','DISPLAY','PERFORMANCE','SYSTEM','RESET','STOMP','ICARUS SYNTH'];
 const SLOTS = ['DYN','DRIVE','AMP','CAB','EQ','MOD','DLY','REV'];
 
 function telemetry(t) {
@@ -1057,7 +1056,6 @@ function telemetry(t) {
   set('t_sram', t[6] + ' / ' + lastPool + ' B  (' + (100 * t[6] / lastPool).toFixed(0) + '%)');
   set('t_cpu', (t[8] / 10).toFixed(1) + ' %');
   set('t_tuner', t[9] ? 'active' : 'off');
-  set('t_drums', t[12] ? 'playing @ ' + t[13] + ' BPM' : 'stopped');
   set('t_inout', 'IN ' + (t[16] || 0) + ' %  /  OUT ' + (t[17] || 0) + ' %');
   $('budget').textContent = 'SRAM ' + t[6] + '/' + lastPool;
   $('cpu').textContent = 'CPU ' + (t[8] / 10).toFixed(0) + '%';
@@ -1262,7 +1260,7 @@ const pulse = (bit, ms) => { post({ type: 'press', mask: bit }); setTimeout(() =
 const COMBOS = {
   comboTuner: 2 | 4,    /* VOL- & VOL+  -> the tuner          */
   comboBank:  8 | 16,   /* <     & >     -> bank mode         */
-  comboDrums: 1 | 2,    /* HOME  & VOL-  -> the groove station */
+  comboSynth: 1 | 4,    /* HOME  & VOL+  -> Icarus Guitar Synth */
 };
 for (const id of Object.keys(COMBOS)) {
   const mask = COMBOS[id];

@@ -26,7 +26,7 @@ const HOME = 1, VOLM = 2, VOLP = 4, LEFT = 8, RIGHT = 16;
 const COMBOS = [
   ['tuner  (VOL- & VOL+)', VOLM | VOLP, 4],
   ['bank   (< & >)',      LEFT | RIGHT, 3],
-  ['groove (HOME & VOL-)', HOME | VOLM, 7],
+  ['synth  (HOME & VOL+)', HOME | VOLP, 16],
 ];
 
 let fails = 0;

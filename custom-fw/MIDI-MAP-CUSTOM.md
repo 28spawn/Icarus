@@ -1,6 +1,6 @@
-# Pocket Amp custom firmware: MIDI map (stock-compatible, with extensions)
+# Icarus Guitar Synthesizer & Rig Firmware: MIDI & SysEx Map
 
-Status: DRAFT v1, 2026-11-03. This is a design. Nothing in it is implemented in the firmware except where a line says **[F]**. Nothing was flashed.
+Status: **IMPLEMENTED (Icarus 0.10 (v0.1.0), 2026-11-07)**.
 Base document: `POCKET_AMP_MIDI_ADDRESS_MAP.md` (the stock map, called "the stock map" below).
 
 Evidence tags used in every table:
@@ -16,22 +16,25 @@ Evidence tags used in every table:
 ## 0. Rules
 
 1. **Stock meaning never changes.** Every stock PC, CC, SysEx command and record offset keeps its stock meaning and its stock value range.
-2. **New things go only where the stock never goes**: CC numbers the stock map does not list, SysEx command numbers above the stock's 1..48, record bytes that are zero in every stock record we have.
+2. **Focused 5-Block Signal Chain (`DYN` → `SYNTH` → `AMP` → `CAB` → `EQ`).** In Icarus, slot 1 is the **Icarus Polyphonic Analog & Dual-Oscillator Guitar Synthesizer (`PA_SLOT_SYNTH`)**, replacing the legacy `DRIVE`/`MOD`/`DLY`/`REV` modules.
 3. **A stock device or editor that meets a new item must be able to ignore it.** A record with extension bytes is still a valid stock record; a new CC or command is simply not answered by stock.
 4. **An extension announces itself** (record byte 0x01 has bit 7 set; `EXT_HELLO` answers). A reader that does not see the announcement treats the record as plain stock.
 5. **Types beyond the stock lists never replace the stock type byte.** The stock type byte holds the nearest stock model; the real type rides in the extension.
-6. **Full fidelity has a second path** that does not squeeze into 92 bytes: the `PA-EXT` SysEx commands (section 3.3).
+6. **Full fidelity has a second path** that does not squeeze into 92 bytes: the SysEx state & name snapshots (`cmd 80`, `cmd 81`).
 
 ## 1. Transports (unchanged) [S]
 
 USB-MIDI class device (4-byte event packets) and BLE-MIDI 1.0: service `03B80E5A-EDE8-4B33-A751-6CE34EC4C700`, characteristic `7772E5DB-3868-4112-A1A9-F2669D106BF3` (notify + write without response), CCCD `0x0073`.
-Channel: the stock firmware reacts on any channel; so does ours [F] (`usb_ble.c:123`, only `status & 0xF0` is used). Keep it omni.
+Channel: the stock firmware reacts on any channel; so does ours [F] (`usb_ble.c`, only `status & 0xF0` is used). Keep it omni.
 
-## 1b. Implementation status (pack 177, 2026-11-04): what the firmware really does
+## 1b. Implementation status (Icarus 0.10 (v0.1.0), 2026-11-07): what the firmware really does
 
-Implemented and covered by `test/test_midi_control.py` (gate F-17, which drives the real handler in `usb_ble.c` and the real tick; USB and BLE share the handler): Program Change; CC 7; CC 20..27 (toggle); **CC 28..35 (set on / off)**; CC 64..67; **CC 80 / 81 (next / previous preset), 85 (tuner), 86 (groove play / stop), 87 (play mode), 88 (SAVE the current sound in the current preset)**; **CC 102..118 (direct knobs)**; **NRPN** (CC 99 / 98, data entry CC 6 high half and optional CC 38 low half; RPN null CC 101 / 100 = 127 clears the selection): modules 0..7 knobs (`0..5` and `0x60..0x65` both address the firmware's NATIVE knob 0..5: the stock-record translation of section 5 is not applied), `0x40` type (>= 0x20 = firmware id + 0x20; below 0x20 is taken as the firmware's id too), `0x41` enable; **module 8 GLOBAL parameters 0..17, module 9 GROOVE 0..4, module 10 PRESET 0 (volume) and 3..6 (stomp map)**.
-Modules 8..10 take the raw number D in CC 6 alone when D < 128 (or CC 6 = D >> 7 and CC 38 = D & 127 for a larger one, e.g. the BPM). A change of a general setting marks the settings to be saved (about 2 s later, in the settings log of the flash); the master knob and a MIDI / menu level follow the LAST change (the knob wins only when it moves). CC 88 and the NRPN save need a value >= 64.
-NOT implemented, still proposals: NRPN PRESET parameters 1 and 2 (the preset's input trim and gate threshold are stored but not used by the DSP), CC 119 (reserved), SysEx `PA-EXT`. The identity query (OTA frame `F0 00 32 45 00 00 00 40 7F F7`) is now answered over BLE as well as USB.
+Implemented and covered by `test/test_midi_control.py` (gate F-17, which drives the real handler in `usb_ble.c` and the real tick; USB and BLE share the handler): Program Change; CC 7; CC 20..27 (toggle); **CC 28..35 (set on / off)**; CC 64..67; **CC 80 / 81 (next / previous preset), 85 (tuner), 86 (groove play / stop), 87 (play mode), 88 (SAVE the current sound in the current preset)**; **CC 102..118 (direct knobs for AMP, SYNTH, DYN, and CAB)**; **NRPN** (CC 99 / 98, data entry CC 6 high half and optional CC 38 low half; RPN null CC 101 / 100 = 127 clears the selection):
+- Modules 0..7 macro knobs (`0..5` and `0x60..0x65` both address the firmware's NATIVE knob 0..5), `0x40` type (`>= 0x20` = firmware id + `0x20`; below `0x20` is taken as the firmware's id too), `0x41` enable;
+- **Module 6 (`SYNTH`, `PA_SLOT_SYNTH`) deep synthesizer parameters `0x10..0x3D` (`16..61`)**: full real-time control over all 46 parameters of the Icarus Guitar Synthesizer (Mode, Waveshaper, OSC A, OSC B, Sub-Osc, SVF Resonant Filter, ADSR Envelope, Glide, Vibrato, LFO, 3-Way Studio Mixer, Stage Routing, Expression, and Analog Drift);
+- **Module 8 GLOBAL parameters 0..19, module 9 GROOVE 0..4, module 10 PRESET 0 (volume), 3..6 (stomp map), and 7 (chain move)**.
+- **SysEx `cmd 80` (`PA_CMD_PA_STATE`)**: 128-byte live rig snapshot.
+- **SysEx `cmd 81` (`PA_CMD_PA_NAMES`, `kind = 2`)**: 64-byte live Icarus Synthesizer parameter + telemetry snapshot (all 46 synth parameters + live pitch Hz, MIDI note, filter cutoff, envelope level, and IN/SYNTH/OUT peaks).
 
 ## 2. Channel messages
 
@@ -46,66 +49,116 @@ Value rule for every toggle and button: **value >= 64 acts, value < 64 is ignore
 
 | CC | Function | Tag | Note |
 |---|---|---|---|
-| 20 | Toggle FX (DYN) | S | |
-| 21 | Toggle AMP | S F | fixed 2026-11-03 (D1): the CC number is translated to the firmware slot through a table, `usb_ble.c` `k_cc_module_slot` |
-| 22 | Toggle MOD | S | |
-| 23 | Toggle DLY | S | |
-| 24 | Toggle REV | S | |
-| 25 | Toggle CAB | S | |
-| **26** | Toggle DRIVE (new module) | N F | continues the stock block; implemented with D1 |
-| **27** | Toggle EQ (new module) | N F | implemented with D1 |
-| **28..35** | **Set** module on / off (>= 64 on, < 64 off), in the order FX, AMP, MOD, DLY, REV, CAB, DRIVE, EQ | N | the stock toggles; a controller that must not lose sync needs a set |
+| 20 | Toggle FX (`DYN`, slot 0) | S F | |
+| 21 | Toggle `AMP` (slot 2) | S F | fixed 2026-11-03 (D1): translated through `usb_ble.c` `k_cc_module_slot` |
+| 22..24 | Toggle `SYNTH` (alias for stock pedal compatibility) | S F | in Icarus's 5-block chain, slots 5..7 alias to `PA_SLOT_SYNTH` |
+| 25 | Toggle `CAB` (slot 3) | S F | |
+| **26** | Toggle `SYNTH` (slot 1) | N F | primary Icarus Synthesizer bypass toggle |
+| **27** | Toggle `EQ` (slot 4) | N F | |
+| **28..35** | **Set** module on / off (>= 64 on, < 64 off), in the order `DYN`, `AMP`, `SYNTH`, `SYNTH`, `SYNTH`, `CAB`, `SYNTH`, `EQ` | N F | |
 | **90 / 91** | BENCH ONLY (pack 159): 90 = a 2 kHz timer interrupt also serves the USB recording endpoint, 91 = the main loop only (the default after every boot). Remove when the USB audio service is settled | N F | `usb_ble.c`, `usb_dev.c` |
 | 64 | HOME | S F | |
 | 65 | PARA click | S F | |
 | 66 | PARA CCW | S F | |
 | 67 | PARA CW | S F | |
-| **7** | Preset volume, 0..127 -> 0..100 % (same range as the VOL bar) | N | standard "channel volume" number |
-| **80** / **81** | Next / previous preset | N | wraps within P01..P80 |
-| **85** | Tuner on / off | N | |
-| **86** | Groove Station play / stop | N | |
-| **87** | Play mode: >= 64 STOMP, < 64 PRESET | N | |
-| **102..119** | Direct knobs, 0..127 -> 0..100 % (table below) | N | |
-| **98 / 99 / 6 / 38** | NRPN, section 2.3 | N | standard numbers |
+| **7** | Preset volume, 0..127 -> 0..100 % (same range as the VOL bar) | N F | standard "channel volume" number |
+| **80** / **81** | Next / previous preset | N F | wraps within P01..P80 |
+| **85** | Tuner on / off | N F | |
+| **86** | Groove Station play / stop | N F | |
+| **87** | Play mode: >= 64 STOMP, < 64 PRESET | N F | |
+| **88** | Save current preset | N F | >= 64 saves in current slot |
+| **102..118** | Direct knobs, 0..127 -> 0..100 % (table below) | N F | |
+| **98 / 99 / 6 / 38** | NRPN, section 2.3 | N F | standard numbers |
 
-Direct knob block (the controls worth a plain CC; everything else is NRPN):
+Direct knob block (for the 5 active Icarus blocks: `AMP`, `SYNTH`, `DYN`, `CAB`):
 
 | CC | Knob | CC | Knob | CC | Knob |
 |---|---|---|---|---|---|
-| 102 | AMP Gain | 108 | DRIVE Drive | 114 | MOD Speed |
-| 103 | AMP Level | 109 | DLY Time | 115 | MOD Depth |
-| 104 | AMP Bass | 110 | DLY Feedback | 116 | CAB Level |
-| 105 | AMP Mid | 111 | DLY Mix | 117 | CAB Low Cut |
-| 106 | AMP Treble | 112 | REV Decay | 118 | CAB High Cut |
-| 107 | AMP Presence | 113 | REV Mix | 119 | reserved |
+| 102 | AMP Gain | 108 | **SYNTH Cutoff** | 114 | **DYN Threshold** |
+| 103 | AMP Level (Master) | 109 | **SYNTH Resonance** | 115 | **DYN Level / Boost** |
+| 104 | AMP Bass | 110 | **SYNTH Env Amount** | 116 | CAB Level |
+| 105 | AMP Mid | 111 | **SYNTH Osc Mix** | 117 | CAB Low Cut |
+| 106 | AMP Treble | 112 | **SYNTH Analog Drive** | 118 | CAB High Cut |
+| 107 | AMP Presence | 113 | **SYNTH Glide Time** | 119 | reserved |
 
 All other CC numbers stay unused (the stock map lists none), including 0, 32 (bank select: not needed, 80 presets fit program change), 123.
 
-### 2.3 NRPN (every parameter, full resolution) [N]
+### 2.3 NRPN (every parameter, full resolution) [N][F]
 
 `CC 99 = module`, `CC 98 = parameter`, then data entry `CC 6` (high 7 bits) and optionally `CC 38` (low 7 bits). 14-bit value `D = CC6 * 128 + CC38` -> knob percent `round(D * 100 / 16383)`; with CC 6 alone: `round(CC6 * 100 / 127)`.
 
-Module numbers follow the stock record order, so the address is the record's own address:
+Module numbers follow the stock record order:
 
 | Module (CC 99) | Name | Firmware slot | | Module | Name |
 |---|---|---|---|---|---|
-| 0 | FX | DYNAMICS | | 6 | DRIVE (new) |
-| 1 | AMP | AMP | | 7 | EQ (new) |
-| 2 | MOD | MOD | | 8 | GLOBAL (new) |
-| 3 | DLY | DELAY | | 9 | GROOVE (new) |
-| 4 | REV | REVERB | | 10 | PRESET (new) |
-| 5 | CAB | CAB | | | |
+| 0 | FX (`DYN`) | `PA_SLOT_DYNAMICS` (0) | | 6 | **`SYNTH` (`PA_SLOT_SYNTH`, slot 1)** |
+| 1 | `AMP` | `PA_SLOT_AMP` (2) | | 7 | `EQ` (`PA_SLOT_EQ`, slot 4) |
+| 2..4 | legacy alias | `PA_SLOT_SYNTH` (1) | | 8 | `GLOBAL` |
+| 5 | `CAB` | `PA_SLOT_CAB` (3) | | 9 | `GROOVE` |
+| | | | | 10 | `PRESET` |
 
-Parameter (CC 98) for modules 0..7:
+Parameter (`CC 98`) for effect modules `0..7`:
 
 | CC 98 | Meaning |
 |---|---|
-| 0..5 | knob `p0..p5` **exactly as the stock record's slot** (section 5 translates it per type to the firmware knob) |
-| 0x40 | model / type. Value `< 0x20`: the stock type id. Value `>= 0x20`: the firmware's own type id plus 0x20 (so every extended type is addressable) |
-| 0x41 | enable: >= 64 on |
-| 0x60..0x65 | firmware-native knob 0..5, no translation (for new tools) |
+| `0..5` | Macro knob `p0..p5` (for `SYNTH`: `0` Cutoff, `1` Resonance, `2` Env Amount, `3` Synth Mix, `4` Analog Drive, `5` Glide Time) |
+| `0x10..0x3D` (`16..61`) | **Icarus Synthesizer Deep Parameters** (when `CC 99 = 6` (`SYNTH`); see Section 2.4 below) |
+| `0x40` (`64`) | Model / Preset type. Value `>= 0x20`: firmware id + `0x20` (for `SYNTH`: `0x20..0x2B` selects Factory Synth Preset `0..11`) |
+| `0x41` (`65`) | Enable: `>= 64` ON, `< 64` OFF |
+| `0x60..0x65` | Firmware-native macro knob `0..5` |
 
-Modules 8, 9, 10: parameter numbers are in section 6. Sending a parameter the firmware has no knob for is accepted and stored in the preset (the preset already has six parameters per slot), and has no sound until the DSP implements it.
+### 2.4 Icarus Synthesizer Deep NRPN Parameter Map (`CC 99 = 6`, `CC 98 = 0x10..0x3D`) [F]
+
+For `CC 99 = 6` (`SYNTH`) and `CC 98 = 0x10..0x3D`, the data entry value `D` is the raw integer in the table below (send `CC 6 = D` when `D < 128`, or `CC 6 = (D >> 7) & 127` followed by `CC 38 = D & 127` for any value `0..16383`):
+
+| CC 98 (Hex) | CC 98 (Dec) | Category | Parameter | Value Range (`D`) | Mapping / Units |
+|---|---|---|---|---|---|
+| `0x10` | 16 | Mode & Analog | Synth Mode | `0..3` | `0` ANALOG, `1` OSCILLATOR, `2` HYBRID, `3` GUITAR |
+| `0x11` | 17 | Mode & Analog | Waveshaper Mode | `0..4` | `0` SOFT CLIP, `1` HARD CLIP, `2` FOLDBACK, `3` HEXA GR, `4` FUZZ |
+| `0x12` | 18 | Mode & Analog | Analog Drive | `0..100` | `0..100 %` |
+| `0x13` | 19 | Mode & Analog | Input Gain | `50..250` | `50..250 %` (`0.50x .. 2.50x`) |
+| `0x14` | 20 | Mode & Analog | Pre-Emphasis | `0..1` | `0` OFF, `1` ON |
+| `0x15` | 21 | Oscillators | OSC A Waveform | `0..2` | `0` SAW, `1` SQUARE, `2` TRIANGLE |
+| `0x16` | 22 | Oscillators | OSC A Pitch | `0..48` | `D - 24` semitones (`-24 .. +24 st`) |
+| `0x17` | 23 | Oscillators | OSC A Level | `0..100` | `0..100 %` |
+| `0x18` | 24 | Oscillators | OSC B Waveform | `0..2` | `0` SAW, `1` SQUARE, `2` TRIANGLE |
+| `0x19` | 25 | Oscillators | OSC B Pitch | `0..48` | `D - 24` semitones (`-24 .. +24 st`) |
+| `0x1A` | 26 | Oscillators | OSC B Level | `0..100` | `0..100 %` |
+| `0x1B` | 27 | Oscillators | OSC A/B Balance | `0..100` | `0..100 %` (`0` = A, `100` = B) |
+| `0x1C` | 28 | Oscillators | Detune | `0..50` | `0..50 cents` |
+| `0x1D` | 29 | Oscillators | Fine Tune | `0..100` | `D - 50` cents (`-50 .. +50 ct`) |
+| `0x1E` | 30 | Oscillators | Pulse Width (PWM) | `5..95` | `5..95 %` |
+| `0x1F` | 31 | Oscillators | Sub-Oscillator Mode | `0..2` | `0` OFF, `1` -1 OCT, `2` -2 OCT |
+| `0x20` | 32 | Oscillators | Sub-Oscillator Level | `0..100` | `0..100 %` |
+| `0x21` | 33 | Filter | Filter Mode | `0..3` | `0` LP12, `1` LP24, `2` HP12, `3` BP12 |
+| `0x22` | 34 | Filter | Cutoff Frequency | `80..16383` | `80..16383 Hz` |
+| `0x23` | 35 | Filter | Resonance | `0..100` | `0..100 %` |
+| `0x24` | 36 | Filter | Envelope Mod Depth | `0..200` | `(D - 100) %` (`-100 .. +100 %`) |
+| `0x25` | 37 | Filter | Key Tracking | `0..100` | `0..100 %` |
+| `0x26` | 38 | Filter | Filter Saturation | `0..100` | `0..100 %` (dynamics-aware) |
+| `0x27` | 39 | Envelope | Attack Time | `1..2000` | `1..2000 ms` |
+| `0x28` | 40 | Envelope | Decay Time | `10..3000` | `10..3000 ms` |
+| `0x29` | 41 | Envelope | Sustain Level | `0..100` | `0..100 %` |
+| `0x2A` | 42 | Envelope | Release Time | `10..5000` | `10..5000 ms` |
+| `0x2B` | 43 | Modulation | Glide Time | `0..2000` | `0..2000 ms` |
+| `0x2C` | 44 | Modulation | Legato Glide | `0..1` | `0` ALWAYS, `1` LEGATO ONLY |
+| `0x2D` | 45 | Modulation | Vibrato Rate | `1..120` | `D / 10.0 Hz` (`0.1 .. 12.0 Hz`) |
+| `0x2E` | 46 | Modulation | Vibrato Depth | `0..100` | `0..100 cents` |
+| `0x2F` | 47 | Modulation | Vibrato Delay | `0..2000` | `0..2000 ms` |
+| `0x30` | 48 | Modulation | LFO Waveform | `0..4` | `0` SINE, `1` TRI, `2` SQR, `3` SAW, `4` S&H |
+| `0x31` | 49 | Modulation | LFO Rate | `1..200` | `D / 10.0 Hz` (`0.1 .. 20.0 Hz`) |
+| `0x32` | 50 | Modulation | LFO Depth | `0..100` | `0..100 %` |
+| `0x33` | 51 | Modulation | LFO Destination | `0..4` | `0` FILTER FC, `1` OSC PITCH, `2` PWM WIDTH, `3` OSC AMP, `4` STEREO PAN |
+| `0x34` | 52 | 3-Way Mixer | Direct Guitar Level | `0..100` | `0..100 %` |
+| `0x35` | 53 | 3-Way Mixer | Analog Synth Level | `0..100` | `0..100 %` |
+| `0x36` | 54 | 3-Way Mixer | Osc Synth Level | `0..100` | `0..100 %` |
+| `0x37` | 55 | 3-Way Mixer | Synth Master Level | `0..100` | `0..100 %` |
+| `0x38` | 56 | 3-Way Mixer | Synth Stereo Width | `0..100` | `0..100 %` |
+| `0x39` | 57 | Stage & Feel | NAM Amp Stage | `0..1` | `0` BYPASS, `1` ENABLED (synced with `AMP` slot) |
+| `0x3A` | 58 | Stage & Feel | IR Cab Stage | `0..1` | `0` BYPASS, `1` ENABLED (synced with `CAB` slot) |
+| `0x3B` | 59 | Stage & Feel | Synth Noise Gate | `0..1` | `0` OFF, `1` ON |
+| `0x3C` | 60 | Stage & Feel | Pick Expression | `0..100` | `0..100 %` (envelope-follower dynamic blend) |
+| `0x3D` | 61 | Stage & Feel | Analog Osc Drift | `0..100` | `D / 10.0 cents` (`0.0 .. 10.0 ct`) |
 
 ## 3. SysEx
 
@@ -250,49 +303,22 @@ Types 0..19 identical (stock baseline models). User NAMs 20..39 are ours: stock 
 
 Types 0..19 identical. p0 Level -> LEVEL. p1 Low Cut -> LOWCUT (both `20 + 2.8 x v` Hz, i.e. the same 20..300 Hz linear law). p2 High Cut -> HICUT **inverted** (`fw = 100 - stock`; stock 100 = open = 18 kHz).
 
-### MOD (stock) -> MOD (firmware slot 5)
+### SYNTH (slot 1) and EQ (slot 4) [Icarus Active Modules]
 
-| Stock type [S] | Stock id | Firmware id | Stock knobs -> firmware knobs |
-|---|---|---|---|
-| Chorus | 0 | 0 | Speed, Depth, Mix -> RATE, DEPTH, MIX |
-| Phaser | 1 | 1 | stock lists Speed, MidCut, Resonance, Feedback; firmware has RATE, DEPTH, MIX, FDBK: **names differ, [?]** |
-| Tremolo | **2** | **3** | Speed, Depth -> RATE, DEPTH; stock Level -> - |
-| Flanger | **3** | **2** | Speed, Depth, **Feedback, Mix** -> RATE, DEPTH, **FDBK, MIX** (p2 and p3 swapped) |
-| Vibrato | 4 | 4 | Speed, Depth [V] |
-| Univibe | 5 | 5 | Speed, Depth, Mix |
-| Autofilter | 6 | 6 | Speed, Min, Max, Mix, Feedback -> RATE, RANGE, MIX, RESO (Min/Max and RESO only approximate) |
+In Icarus, Slot 1 is the **Icarus Guitar Synthesizer** (PA_SLOT_SYNTH), replacing the legacy drive pedal. Knobs: p0 CUTOFF, p1 RESO, p2 ENV, p3 MIX, p4 DRIVE, p5 GLIDE. Factory presets 0..11 select the 12 synth voice configurations.
 
-The stock map numbers Tremolo 2 and Flanger 3; the firmware has them the other way round. The bank favours the stock map (preset 28, type 2: `55, 50, 50, 0` reads as a tremolo with level 50; as a flanger it would have mix 0). Only **presets 25 and 28** are affected. **[?] test T4** settles it; until then the importer's index-for-index copy is suspect (D4, D5).
+Slot 4 is **EQ**:
+- Type 0: 5-BAND (5 knobs: 100 Hz, 400 Hz, 1 kHz, 3 kHz, 8 kHz)
+- Type 1: LOW/HIGH CUT (LOWCUT, HICUT, LEVEL)
+- Type 2: PARAMETRIC-3 (LOW, MID, FREQ, HIGH)
 
-### DLY (slot 6)
+Over NRPN, SYNTH is module 6 and EQ is module 7 with parameters 0..5.
 
-Types 0 Analog, 1 Ducking, 2 dTape, 3 Dual, 4 Lofi are the same ids as the firmware's ANALOG, DUCKING, TAPE, DUAL, LO-FI. p0 Time, p1 Feedback, p2 Mix map to TIME, FDBK, MIX.
+### Retired Legacy Slots (MOD slot 5, DLY slot 6, REV slot 7)
 
-| Type | stock p3 | stock p4 | stock p5 | Firmware aux knob (knob 3) |
-|---|---|---|---|---|
-| Analog | Phaser Amt [S] | Detune [S] | - | MOD [?] |
-| Ducking | Unpack Dynamic [S] | Chorus Speed [S] | Chorus Depth [S] | RELEASE [?] |
-| dTape | Grit [S] | Speed [S] | Depth [S] | GRIT (p3 only) |
-| **Dual** | **Grit [V]** | **Speed [V]** | **Depth [V]** | RATIO: **different control**; Grit has no firmware knob |
-| Lofi | Grit [S] | Chorus Speed [S] | Chorus Depth [S] | GRIT (p3 only) |
+In Icarus, auxiliary effects (standalone DRIVE, MOD, DELAY, REVERB) were retired from the active signal chain (PA_ACTIVE_SLOT_COUNT = 5) to free DSP memory and CPU cycles for the dual-oscillator resonant synth engine and Core 1 neural amp inference.
 
-The stock map's Dual row says p3 = "TimeMode (Lag)"; the app shows Grit [V] (D6). Stock p4 / p5 (Speed, Depth) have no firmware knob: stored, no sound. 18 of the 21 presets that use delay use Dual.
-
-### REV (slot 7) [V for Room and Hall]
-
-Types 0..5 Room, Hall, Swell, Spring, Shimmer, Cloud are the same ids as the firmware's first six.
-
-| Stock slot | Stock label | Firmware knob |
-|---|---|---|
-| p0 | Decay | DECAY |
-| p1 | Mix | MIX (knob 3) |
-| p2 | HPass | LOWCUT (knob 1) |
-| p3 | LPass | TONE (knob 2); the two laws are not compared [?] |
-| p4 | Depth (Room, Hall; other types per the stock map) | - |
-
-### DRIVE (slot 1) and EQ (slot 4): new modules [N]
-
-Types: DRIVE 0 TS-808, 1 KLON, 2 OCD, 3 RAT, 4 BIG MUFF, 5 FUZZ FACE; knobs p0 DRIVE, p1 TONE, p2 LEVEL. EQ 0 5-BAND (5 knobs: 100 Hz, 400 Hz, 1 kHz, 3 kHz, 8 kHz), 1 LOW/HIGH CUT (LOWCUT, HICUT, LEVEL), 2 PARAMETRIC-3 (LOW, MID, FREQ, HIGH). In a record they live in the extension bytes (4.3); over NRPN they are modules 6 and 7 with parameters 0..4.
+Incoming MIDI CC and NRPN messages addressing legacy modules (CC 23 DLY, CC 24 MOD, CC 25 REV, CC 26 DRIVE) are safely received and ignored without error or audio interruption.
 
 ## 6. Modules 8, 9, 10 (NRPN) and `EXT_SETTINGS` ids [N]
 

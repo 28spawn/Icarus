@@ -31,9 +31,7 @@ def check(ok, msg):
 
 
 print("=== [1] the generated files are what their generators make ===")
-for tool, extra, what in (("gen_drum_kit.py", [], "src/dsp/drum_kit.inc"),
-                          ("gen_drum_patterns.py", [], "src/dsp/drum_patterns.inc"),
-                          ("gen_test_audio.py", [], "src/fx/cab_default_table.inc")):
+for tool, extra, what in [("gen_test_audio.py", [], "src/fx/cab_default_table.inc")]:
     r = subprocess.run([sys.executable, os.path.join(FW, "tools", tool), "--check", *extra],
                        capture_output=True, text=True)
     check(r.returncode == 0, f"{what} matches tools/{tool}" + ("" if r.returncode == 0 else
@@ -162,9 +160,10 @@ import gen_test_audio            # noqa: E402
 import nam_loader                # noqa: E402
 gen_test_audio.ensure_emu_assets(os.path.join(FW, "emu"), log=lambda s: None)
 emu = os.path.join(FW, "emu")
-for fn in gen_test_audio.PHRASES:
+jonas_samples = [f"jonas_{cat}_{i}.wav" for cat in ("chords", "lick", "riff") for i in range(1, 6)]
+for fn in jonas_samples:
     p = os.path.join(emu, "samples", fn)
-    check(os.path.getsize(p) > 100_000, f"samples/{fn} ({os.path.getsize(p):,} B)")
+    check(os.path.exists(p) and os.path.getsize(p) > 500_000, f"Jonas Hemmersbach DI capture samples/{fn} ({os.path.getsize(p):,} B)")
 for name in list(gen_test_audio.CABS) + list(gen_test_audio.REVERBS):
     p = os.path.join(emu, "irs", f"{name}.wav")
     taps, _ = nam_loader.parse_wav_ir(open(p, "rb").read(), max_taps=1024)

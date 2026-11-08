@@ -114,6 +114,10 @@ typedef struct {
  * timers, the drum sync, the auto-dim, the settings persistence and the
  * render - lives here, so the device, the host emulator and the WebAssembly
  * build all run the SAME firmware logic rather than three similar copies. */
+/* Called on EVERY pass of the main loop (about 1,200 a second), not only on the 60 Hz tick: runs a slice of the Icarus pitch search, so a note's pitch is known a few ms after the pick
+ * instead of up to a UI tick later. Does nothing while the synth is off. */
+void pa_audio_core_poll_fast(void);
+
 void pa_audio_core_tick(pa_fx_chain_t *chain, pa_ui_ctx_t *ui, pa_drums_t *drums,
                         pa_usb_ble_ctx_t *usb, pa_cpu_meter_t *meter,
                         const pa_board_services_t *bsp,

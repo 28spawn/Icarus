@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot the screens that matter for the Project Alpha look: the home grid and list, every block page, the Project Alpha pages,
+"""Snapshot the screens that matter for the Icarus look: the home grid and list, every block page, the Icarus Synth pages,
 settings. Writes PNGs to custom-fw/emu/ui_shots/ (or argv[1]).  Run after build.ps1 so the DLL is current.
 
     python custom-fw/emu/snap_screens.py [out_dir]
@@ -84,10 +84,10 @@ for i, step in enumerate((-2, -1, 0, 1, 2)):
 d.emu_init(); tick(40)
 tap(LEFT); tick(5)
 shot("settings_or_prev")
-# Project Alpha: HOME + VOL+ enters, < > walk the tabs
+# Icarus Synth: HOME + VOL+ enters, < > walk the tabs
 d.emu_init(); tick(40)
 d.emu_ui_tap(HOME | VOLP, 0); tick(40)
-shot("alpha_main")
+shot("icarus_main")
 for t in range(1, 8):
     tap(RIGHT); tick(10)
-    shot(f"alpha_tab{t}")
+    shot(f"icarus_tab{t}")

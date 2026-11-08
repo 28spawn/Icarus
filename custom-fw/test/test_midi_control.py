@@ -114,7 +114,9 @@ check(True, "a legacy module CC whose block is gone (CC 23 DLY) is ignored witho
 
 print("\n=== Direct knobs CC 102..118: every one reaches the right knob of the right block ===")
 KN = [(102, AMP, 0, "AMP gain"), (103, AMP, 5, "AMP level (master)"), (104, AMP, 1, "AMP bass"), (105, AMP, 2, "AMP mid"), (106, AMP, 3, "AMP treble"), (107, AMP, 4, "AMP presence"),
-      (108, SYNTH, 0, "SYNTH cutoff (the old DRIVE direct knob)"),
+      (108, SYNTH, 0, "SYNTH cutoff"), (109, SYNTH, 1, "SYNTH resonance"), (110, SYNTH, 2, "SYNTH env amount"),
+      (111, SYNTH, 3, "SYNTH mix"), (112, SYNTH, 4, "SYNTH analog drive"), (113, SYNTH, 5, "SYNTH glide"),
+      (114, DYN, 0, "DYN threshold"), (115, DYN, 3, "DYN level"),
       (116, CAB, 0, "CAB level"), (117, CAB, 1, "CAB low cut"), (118, CAB, 2, "CAB high cut")]
 for ccn, slot, k, name in KN:
     cc(ccn, 0); tick(1)
@@ -152,6 +154,10 @@ check(d.emu_get_slot_type(SYNTH) == 0, "a type number the block does not have (0
 nrpn(6, 0x41, 127); tick(); on = (active_mask() >> SYNTH) & 1
 nrpn(6, 0x41, 0); tick();   off = (active_mask() >> SYNTH) & 1
 check(on == 1 and off == 0, f"NRPN SYNTH param 0x41 turns the block on ({on}) and off ({off})")
+nrpn(6, 0x40, 0, 0x23); tick()
+check(d.emu_get_slot_type(SYNTH) == 3, f"NRPN SYNTH type 0x40 via 14-bit (CC6=0, CC38=0x23) -> type 3 ({d.emu_get_slot_type(SYNTH)})")
+nrpn(6, 0x10, 2); nrpn(6, 0x22, 11, 92); nrpn(6, 0x23, 65); tick()
+check(param(SYNTH, 1) in range(66, 71), f"NRPN SYNTH deep param 0x23 (resonance 65%) syncs macro knob 1 ({param(SYNTH, 1)})")
 
 print("\n=== NRPN module 8 GLOBAL: the general settings (each one marks the settings to be saved) ===")
 GL = [(0, 14, 1, 2, "input gain D=14 -> +2 dB"), (0, 0, 1, -12, "input gain D=0 -> -12 dB"), (1, 50, 2, -30, "gate D=50 -> -30 dB"), (1, 0, 2, -80, "gate D=0 -> -80 dB (off)"),
@@ -191,8 +197,8 @@ check(abs(ui(3) - 73) <= 2, f"turning the knob takes the level back ({ui(3)})")
 print("\n=== NRPN module 9 GROOVE and module 10 PRESET ===")
 nrpn(9, 1, 0, 80); tick(); check(ui(19) == 120, f"GROOVE BPM D=80 (14 bit) -> 120 bpm ({ui(19)})")
 nrpn(9, 1, 0, 120); tick(); check(ui(19) == 160, f"GROOVE BPM D=120 -> 160 bpm ({ui(19)})")
-nrpn(9, 2, 7); tick(); check(ui(20) == 7, f"GROOVE pattern 7 ({ui(20)})")
-nrpn(9, 2, 99); tick(); check(ui(20) == 39, f"GROOVE pattern above the range is clamped to the last one ({ui(20)})")
+nrpn(9, 2, 7); tick(); check(ui(20) == 0, f"GROOVE pattern clamped to 0 (drums removed) ({ui(20)})")
+nrpn(9, 2, 99); tick(); check(ui(20) == 0, f"GROOVE pattern above the range is clamped to 0 ({ui(20)})")
 nrpn(9, 3, 55); tick(); check(ui(21) == 55, f"GROOVE volume 55 ({ui(21)})")
 nrpn(9, 0, 1); tick(); check(ui(24) == 1, "GROOVE play on")
 cc(86, 0); tick(); check(ui(24) == 0, "CC 86 = 0 stops the groove")

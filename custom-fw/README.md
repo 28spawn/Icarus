@@ -11,18 +11,18 @@ A maintainable, modular C firmware source tree for the **M-VAVE Pocket Amp** tar
 - **Fixed-Point Precision**: Q21 (integer `1 << 21` = 2,097,152) for all audio math, saturating addition, and non-linear tube GRU saturation curves.
 - **Hardware Acceleration**: The `0x01EE0400` SIMD vector coprocessor executes 16-element parallel matrix MAC operations in hardware.
 - **Dynamic Reclaim**: `pa_fx_chain_set_slot_enabled()` dynamically frees memory buffers for bypassed nodes (reclaiming 115,008 B SRAM and ~25% CPU load: reverb 49,384 + delay 65,624).
-- **Groove Station drum machine** (`src/dsp/drums_synth.c`): 49 rhythm patterns authored in a 48-step-per-4/4-bar grid (`src/dsp/drum_patterns.inc`). The twelve drum voices are procedurally synthesised by `tools/gen_drum_kit.py` from deterministic oscillators, noise, and filters into `src/dsp/drum_kit.inc` (original material, no product recordings).
+- **Icarus Guitar Synthesizer** (`src/effects/icarus/`): Monophonic analog synthesizer with dual-oscillator + sub-octave architecture, zero-delay feedback (ZDF) ladder filter, 4-stage ADSR envelope, multi-waveform LFO, pitch tracker, and 12 factory presets.
 
 ### 2. Physical Front Panel & UI (`src/board/ui_app.c`)
-- **ST7735S Display**: 240x240 RGB565 display driver using the Onyx dark design system.
+- **ST7735S Display**: 240x240 RGB565 display driver using the Icarus dark design system.
 - **5 Physical Illuminated Buttons**: `HOME`, `VOL-`, `VOL+`, `<`, `>`.
 - **Rotary PARA Encoder + Click**: Adjusts radial parameters, navigates menus, and confirms selections with hover retention.
 - **Master Volume SARADC Potentiometer**: Analog input attenuation tracked in real-time.
 - **Simultaneous Combos**:
   - `VOL- + VOL+`: Chromatic Tuner mode.
   - `< + >`: Bank Mode 01.
-  - `HOME + VOL-`: Groove Station (Acoustic 808/909 drum machine).
-  - `HOME + VOL+`: Signal Chain Sequence reordering.
+  - `HOME + VOL+`: Icarus Guitar Synthesizer Mode.
+  - `HOME + VOL-`: Reserved.
   - `HOME`: From any sub-screen returns Home; from Home enters Settings Menu.
 
 ### 3. Hardware-in-the-Loop (HIL) Emulator (`emu/`)
@@ -45,7 +45,7 @@ The script will:
    clang -target pi32v2 -mcpu=r3 -O2 -Iinclude -nostdlib ...
    ```
 3. Link into `build_app.bin` with `app.ld`.
-4. Package valid `Project_Alpha.ufw` and `Project_Alpha.fwsc` firmware containers.
+4. Package valid `Icarus.ufw` and `Icarus.fwsc` firmware containers.
 
 ### Emulator DLL Compilation
 ```powershell

@@ -20,7 +20,7 @@
  * Not done (as responder): the 30 s SMP timeout (a stalled pairing just waits for the next Pairing Request or the
  * link's end), LE Secure Connections, passkey / OOB, signing. The initiator (ble_smp_init.c) also does legacy passkey
  * entry, with us displaying, for a peripheral that needs an authenticated link. */
-#include "pa_prof.h"                     /* PA-MOD: run-time experiment switches */
+#include "pa_prof.h"                     /* ICARUS: run-time experiment switches */
 #include "ble.h"
 #include "ble_host.h"
 #include "ble_ll.h"
@@ -170,7 +170,7 @@ static void smp_own_irk(uint8_t irk[16])
 
 static void smp_pair_req(const uint8_t *p)
 {
-    if (PA_PROF(PA_BLE_PROF_NO_ENC)) {            /* PA-MOD profile: no pairing on this link (the LL refuses encryption too) */
+    if (PA_PROF(PA_BLE_PROF_NO_ENC)) {            /* ICARUS profile: no pairing on this link (the LL refuses encryption too) */
         smp_fail(SMP_E_NOT_SUPP);
         return;
     }

@@ -44,6 +44,7 @@ void        pa_stock_assets_init(void);
 int         pa_stock_has_factory_assets(void);
 const char *pa_stock_get_amp_name(uint8_t idx);
 const char *pa_stock_get_cab_name(uint8_t idx);
+void        pa_stock_prefetch(uint8_t amp_idx, uint8_t cab_idx);   /* main loop: read the factory amp / cabinet into SRAM before a swap (0xFF = none) */
 int         pa_stock_load_amp(uint8_t idx, pa_nam_model_t *out_model, float *out_dc_bias);
 int         pa_stock_load_cab(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps);
 

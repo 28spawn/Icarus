@@ -123,6 +123,10 @@ custom-fw/emu/test_snapshots/
 # QA test run logs and traces (hw_ledger.json, baseline.json, spin_allowlist.txt retained for qa_gate)
 custom-fw/qa/ble-gate/
 custom-fw/qa/drum_ab/
+custom-fw/qa/dumps/
+custom-fw/qa/renders/
+custom-fw/qa/synth_cost.json
+custom-fw/qa/synth_stages.json
 custom-fw/qa/noise/
 custom-fw/qa/usb-etw/
 custom-fw/qa/*.txt

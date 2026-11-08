@@ -14,6 +14,7 @@
 #include "../../include/pa_stock_assets.h"
 #include "../../include/pa_user_cab.h"
 #include <string.h>
+void *pa_alloc(uint32_t bytes);       /* the effect pool (pa_plat.h) */
 #include "../../include/pa_xip.h"
 /* ===================================================================== flash loader */
 
@@ -162,7 +163,7 @@ const char *pa_stock_get_cab_name(uint8_t idx) {
     return flash_name(1, idx, k_fallback_cab_names[idx]);
 }
 
-int pa_stock_load_amp(uint8_t idx, pa_nam_model_t *out_model, float *out_dc_bias) {
+static int stock_load_amp_flash(uint8_t idx, pa_nam_model_t *out_model, float *out_dc_bias) {
     if (idx >= PA_STOCK_AMP_COUNT || !out_model) return -1;
 
     if (s_flash_has_assets) {
@@ -221,7 +222,7 @@ int pa_stock_load_amp(uint8_t idx, pa_nam_model_t *out_model, float *out_dc_bias
     return 0;
 }
 
-int pa_stock_load_cab(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps) {
+static int stock_load_cab_flash(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps) {
     if (idx >= PA_STOCK_CAB_COUNT || !out_taps_q18) return -1;
 
     if (s_flash_has_assets) {
@@ -314,7 +315,59 @@ const char *pa_cab_name(uint8_t idx) {
     return pa_user_cab_is_active(idx) ? pa_user_cab_name(idx) : "MISSING";
 }
 
+/* ---- the prefetch --------------------------------------------------------------------------------------------------------------------------------------------------------
+ * A preset / amp swap is applied inside the AUDIO INTERRUPT, and the factory amp and cabinet live in the flash outside the readable window: reading them there takes ~190 ms with the
+ * interrupts masked (and hung the unit on the first click, then froze it after a dozen). The main loop - where every other flash operation runs - reads the new amp and cabinet into
+ * these two buffers BEFORE the swap is requested; the swap then copies them from SRAM (pa_stock_load_amp / pa_stock_load_cab use the buffer when the index matches). */
+static pa_nam_model_t *s_pf_amp;                        /* from the effect pool on first use (the static RAM is full) */
+static float          s_pf_amp_dc;
+static uint8_t        s_pf_amp_idx = 0xFFu;
+static int32_t        *s_pf_cab;
+static uint32_t       s_pf_cab_n;
+static uint8_t        s_pf_cab_idx = 0xFFu;
+
+static int pa_cab_load_uncached(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps);
+
+void pa_stock_prefetch(uint8_t amp_idx, uint8_t cab_idx) {
+    if (!s_pf_amp) s_pf_amp = (pa_nam_model_t *)pa_alloc((uint32_t)sizeof(pa_nam_model_t));
+    if (!s_pf_cab) s_pf_cab = (int32_t *)pa_alloc((uint32_t)(PA_STOCK_CAB_TAPS * sizeof(int32_t)));
+    pa_spi_nor_begin();                       /* every 256-byte read below inside ONE flash quiesce (one per window took 4 s per click) */
+    if (s_pf_amp && amp_idx < PA_STOCK_AMP_COUNT && s_pf_amp_idx != amp_idx) {
+        s_pf_amp_idx = 0xFFu;
+        float dc = 0.0f;
+        if (stock_load_amp_flash(amp_idx, s_pf_amp, &dc) == 0) { s_pf_amp_dc = dc; s_pf_amp_idx = amp_idx; }
+    }
+    if (s_pf_cab && cab_idx != 0xFFu && s_pf_cab_idx != cab_idx) {        /* any cabinet: stock, embedded or a stored one */
+        s_pf_cab_idx = 0xFFu;
+        uint32_t n = 0;
+        if (pa_cab_load_uncached(cab_idx, s_pf_cab, &n) == 0) { s_pf_cab_n = n; s_pf_cab_idx = cab_idx; }
+    }
+    pa_spi_nor_end();
+}
+
+int pa_stock_load_amp(uint8_t idx, pa_nam_model_t *out_model, float *out_dc_bias) {
+    if (idx == s_pf_amp_idx && out_model) {
+        memcpy(out_model, s_pf_amp, sizeof *out_model);
+        if (out_dc_bias) *out_dc_bias = s_pf_amp_dc;
+        return 0;
+    }
+    return stock_load_amp_flash(idx, out_model, out_dc_bias);
+}
+
+int pa_stock_load_cab(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps) {
+    return stock_load_cab_flash(idx, out_taps_q18, out_num_taps);
+}
+
 int pa_cab_load(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps) {
+    if (idx == s_pf_cab_idx && out_taps_q18) {                    /* read by the main loop before the swap */
+        memcpy(out_taps_q18, s_pf_cab, PA_STOCK_CAB_TAPS * sizeof(int32_t));
+        if (out_num_taps) *out_num_taps = s_pf_cab_n;
+        return 0;
+    }
+    return pa_cab_load_uncached(idx, out_taps_q18, out_num_taps);
+}
+
+static int pa_cab_load_uncached(uint8_t idx, int32_t *out_taps_q18, uint32_t *out_num_taps) {
     if (idx < PA_STOCK_CAB_COUNT) return pa_stock_load_cab(idx, out_taps_q18, out_num_taps);
     idx = (uint8_t)(idx - PA_STOCK_CAB_COUNT);
     if (idx >= PA_EMB_CAB_N) {                                    /* a stored cabinet */

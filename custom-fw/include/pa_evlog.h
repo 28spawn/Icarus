@@ -33,6 +33,7 @@ enum {
     PA_EV_POOL_FAIL = 18,   /* the effect memory could not give a block: a = bytes asked for, b = the largest free block */
     PA_EV_BLE       = 20,   /* the Bluetooth radio (pa_ble_radio.h): a = what happened (PA_EV_BLE_*), b = detail */
     PA_EV_MASTER    = 21,   /* the output came up from the power-on silence: a = ms since boot, b = the MASTER level in percent (0x100 + the saved level when the knob never answered) */
+    PA_EV_SYNTH_SHED= 22,   /* Icarus Synth was dropped to the dry guitar by the overload protection: a = why (1 = 8 late blocks in a window of 64, 2 = the load governor at level 2 for 3 s), b = late blocks counted (1) / average audio time in us (2) */
     PA_EV_GOVERNOR  = 15    /* the load governor changed the quality level: a = level now (0 full, 1 drive at 2x, 2 + shorter cabinet), b = average audio time in us */
 };
 

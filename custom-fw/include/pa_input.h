@@ -37,8 +37,8 @@
 #define PA_BTN_COMBO_BANK  (1u << 7)   /* < & >      -> bank mode             */
 #define PA_BTN_COMBO_DRUMS (1u << 8)   /* HOME & VOL- -> groove station       */
 #define PA_BTN_COMBO_CHAIN (1u << 9)   /* HOME & VOL+ -> signal chain (unused) */
-#define PA_BTN_PARA_HOLD1  (1u << 10)  /* PARA held 1-3 s, fires on release -> "Save to"          */
-#define PA_BTN_PARA_HOLD2  (1u << 11)  /* PARA held past 3 s, fires the moment 3 s is reached (however long it stays down) -> pick the block up */
+#define PA_BTN_PARA_HOLD1  (1u << 10)  /* PARA held 1.0-1.6 s, fires on release -> "Save to"       */
+#define PA_BTN_PARA_HOLD2  (1u << 11)  /* PARA held past 1.6 s, fires the moment 1.6 s is reached (however long it stays down) -> pick the block up */
 #define PA_BTN_PARA_HOLD3  (1u << 12)  /* unused (the factory reset is a click in Settings > System) */
 #define PA_BTN_HOME_HOLD   (1u << 13)  /* HOME held 1.5 s, fires when 1.5 s is reached -> toggle PRESET / STOMP mode */
 /* In STOMP mode on the home screen VOL-, VOL+, < and > act on RELEASE (a short press = the footswitch), and a long press (0.8 s, fires when reached) is one of these: */
@@ -58,8 +58,8 @@
 #define PA_IN_COMBO_WINDOW_MS  15u   /* chord window: hold single presses to catch chords */
 #define PA_IN_REPEAT_DELAY_MS 350u  /* a held button starts repeating after  */
 #define PA_IN_REPEAT_MS        70u  /* ... and then every this often         */
-#define PA_IN_HOLD1_MS       1000u
-#define PA_IN_HOLD2_MS       3000u   /* PARA: past this = the move hold (was 2 s, and a hold past 3 s did nothing) */
+#define PA_IN_HOLD1_MS       1000u   /* Save to: 1.0 s */
+#define PA_IN_HOLD2_MS       1600u   /* PARA: past this = the move hold (1.6 s) */
 #define PA_IN_HOME_HOLD_MS   1500u
 #define PA_IN_KEYHOLD_MS      800u   /* STOMP mode: VOL-, VOL+, <, > long press */
 

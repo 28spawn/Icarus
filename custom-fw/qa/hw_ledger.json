@@ -1,7 +1,7 @@
 {
   "_readme": "Hardware and recovery evidence for the QA gate (custom-fw/tools/qa_gate.py). Fill it in as you do the bench work in TEST-PROTOCOL.md. Every claim needs evidence: a photo, a log or a file path. The gate reads this file; it never writes it.",
   "device": {
-    "serial_or_label": "4150353835313708",
+    "serial_or_label": "<REDACTED_SERIAL>",
     "flash_chip": "<marking>",
     "flash_size_bytes": 1048576,
     "flash_is_separate_8pin_chip": null,
@@ -65,7 +65,7 @@
         "status": "proven",
         "date": "2026-10-30",
         "evidence": "FM-1 Transporter method (XIAO RP2040 on D+/D-/GND, USB_KEY at power-on). 2026-10-30: dumps on V1.03 (11c01191...) and V1.05 (66ac9ffd...); full app region (0x5000-0xB5000) rewritten with stock V1.05 and booted; recovery test: app sector 0x5000 blanked -> unit dead (black screen, no USB device on the PC) -> UBOOT entered via USB_KEY -> sector restored with drill --repair -> full re-read identical to 66ac9ffd... -> booted, identity Pocket AMP_105. Logs: custom-fw/qa/backups/unit1_v105_recovery/ (break.out, repair.out, console.log).",
-        "hardware": "Seeed XIAO RP2040 with the Pocket Amp Transporter build (FM-1 Transporter a632d92, MIT, write window widened to 0x0-0xB5000; built from C:/Users/Ricardo/Downloads/pa-transporter-build), custom-fw/tools/pa_transporter.py"
+        "hardware": "Seeed XIAO RP2040 with the Pocket Amp Transporter build (FM-1 Transporter a632d92, MIT, write window widened to 0x0-0xB5000; built from ~/Downloads/pa-transporter-build), custom-fw/tools/pa_transporter.py"
       }
     },
     "restore_drill": {

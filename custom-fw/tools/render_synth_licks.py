@@ -1,4 +1,4 @@
-"""Render synthetic guitar licks through every Project Alpha factory preset (via the emulator DLL)
+"""Render synthetic guitar licks through every Icarus factory preset (via the emulator DLL)
 and write 16-bit stereo WAVs for listening.
 
 The "guitar" is a Karplus-Strong plucked string (no recordings), played as three licks:

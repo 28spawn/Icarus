@@ -630,7 +630,7 @@ def main():
     c.add_argument("--out-dir", default=".")
     c.set_defaults(fn=cmd_crash)
     f = sub.add_parser("flash", help="install a packed custom image into the app area (0x4000-0xB4FFF)")
-    f.add_argument("image", help="Project_Alpha.fwsc (or .ufw) from pack_ufw.py")
+    f.add_argument("image", help="Icarus.fwsc (or .ufw) from pack_ufw.py")
     f.add_argument("ref", help="the verified full dump (must match the ledger baseline)")
     f.add_argument("--i-understand", action="store_true")
     f.add_argument("--over", action="append", metavar="PREV_IMAGE",

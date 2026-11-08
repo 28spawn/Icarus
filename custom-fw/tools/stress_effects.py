@@ -52,10 +52,10 @@ SLOT_KNOBS = {
 # The model list of each block (the type index the UI's dropdown uses).
 SLOT_TYPES = {
     DYN:   ["GATE", "BOOST+GATE", "COMP+GATE", "AI GATE MS", "COMP"],
-    # PA_SLOT_SYNTH holds the 12 Project Alpha factory presets.
+    # PA_SLOT_SYNTH holds the 12 Icarus Synth factory presets.
     SYNTH: ["Metheny Lead", "GR Brass", "Vintage Solo", "Synth Bass",
             "Liquid Lead", "Analog Fuzz", "GR Texture", "Soft Pad",
-            "Square Lead", "Dark Sequence", "Octave Machine", "Pure GR"],
+            "Square Lead", "Dark Sequence", "Pipe Organ", "Pure GR"],
     AMP:   None,     # the 20 stock amps (+ user captures)
     CAB:   None,     # the 20 stock IRs (+ user cabinets)
     EQ:    ["5-BAND", "LOW/HIGH CUT", "PARAMETRIC-3"],
