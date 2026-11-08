@@ -1,0 +1,7 @@
+{
+  "_comment": "Prebuilt Icarus emulator DLL published as a GitHub release asset. Leave tag and sha256 empty until that release exists; the launcher then builds locally instead.",
+  "repo": "28spawn/Icarus",
+  "tag": "",
+  "asset": "icarus_emu.dll",
+  "sha256": ""
+}

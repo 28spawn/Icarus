@@ -1,0 +1,18 @@
+# Python packages required by the desktop emulator (custom-fw/emu).
+#
+# Install with:
+#   python -m pip install -r custom-fw/emu/requirements.txt
+#
+# Python 3.10 or newer is required. On Windows, the sounddevice wheel already
+# bundles PortAudio, so no separate PortAudio/ASIO SDK install is needed.
+numpy>=1.24
+sounddevice>=0.4.6
+
+# soxr is optional but strongly recommended. The firmware DSP runs at 44.1 kHz;
+# if your audio device opens at another rate (48 kHz is common), the server uses
+# soxr to resample. Without it audio still plays but the pitch is wrong.
+soxr>=0.3.4
+
+# Optional: only needed to save PNG screenshots in emu/test_icarus_ui.py and
+# emu/snap_screens.py. The emulator itself does not need Pillow.
+# Pillow>=9.0
