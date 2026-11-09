@@ -29,9 +29,10 @@ static long g_sram_cur = 0;
 static long g_sram_peak = 0;
 
 void *pa_alloc(uint32_t n) {
-    long *p = (long *)calloc(1, n + sizeof(long));
+    long long *p = (long long *)calloc(1, n + 2 * sizeof(long long));   /* a 16-byte header keeps the block aligned (long is 4 bytes on Windows) */
     if (!p) return 0;
-    p[0] = (long)n;
+    p += 1;
+    p[0] = (long long)n;
     g_sram_cur += (long)n;
     if (g_sram_cur > g_sram_peak) g_sram_peak = g_sram_cur;
     return p + 1;
@@ -39,9 +40,9 @@ void *pa_alloc(uint32_t n) {
 
 void pa_free(void *q) {
     if (!q) return;
-    long *p = (long *)q - 1;
-    g_sram_cur -= p[0];
-    free(p);
+    long long *p = (long long *)q - 1;
+    g_sram_cur -= (long)p[0];
+    free(p - 1);
 }
 
 /* Mock LCD hooks for UI verification */

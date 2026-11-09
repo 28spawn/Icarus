@@ -443,7 +443,9 @@ static uint32_t hw_rows_probe(int32_t *W, int32_t *Wn, int32_t *o) {
 }
 
 static uint8_t nam_hw_selftest(void) {
-    static int32_t W[PA_NAM_HIDDEN * PA_NAM_INPUT_EXT], Wn[PA_NAM_HIDDEN * PA_NAM_HIDDEN], v[PA_NAM_INPUT_EXT];
+    /* One spare row each: two of the three control words ask the engine for ten rows (see pa_hw_accel.h), and the second pass starts at row 7,
+     * so the job reads rows 7..16. Without the spare row that was a read past the end of the matrix. */
+    static int32_t W[(PA_NAM_HIDDEN + 1) * PA_NAM_INPUT_EXT], Wn[(PA_NAM_HIDDEN + 1) * PA_NAM_HIDDEN], v[PA_NAM_INPUT_EXT];
     static int32_t o[1024] __attribute__((aligned(8)));            /* big, so a stray write stays inside it */
     uint32_t seed = 0x1234567u, errs = 0, jobs = 0, ticks = 0;
     for (uint32_t i = 0; i < PA_NAM_HIDDEN * PA_NAM_INPUT_EXT; i++) { seed = seed * 1664525u + 1013904223u; W[i] = (int32_t)(seed >> 11) - (1 << 20); }

@@ -966,11 +966,11 @@ static void pa_audio_core_apply_model(pa_fx_chain_t *chain, pa_ui_ctx_t *ui,
                 effective_type = 0;
                 if (ui) ui->slot_type[PA_SLOT_AMP] = 0;
             } else {
-                pa_user_nam_get_amp_defaults(u_idx, ui->slot_params[PA_SLOT_AMP]);
+                if (ui) pa_user_nam_get_amp_defaults(u_idx, ui->slot_params[PA_SLOT_AMP]);
             }
         }
         pa_amp_set_model_profile(effective_type);
-        for (int k = 0; k < 6; k++)
+        for (int k = 0; ui && k < 6; k++)
             pa_fx_chain_set_param(chain, PA_SLOT_AMP, k, ui->slot_params[PA_SLOT_AMP][k]);
         if (g_active_amp_engine == 0 && chain->slots[PA_SLOT_AMP] && chain->slots[PA_SLOT_AMP]->state) {
             pa_nam_prewarm((const pa_nam_model_t *)chain->slots[PA_SLOT_AMP]->state);
@@ -1217,7 +1217,7 @@ static int32_t s_r_q21[PA_AUDIO_BLOCK_FRAMES];
 static pa_spread_t s_spread;            /* the stereo spread (src/dsp/pa_stereo_spread.h) */
 
 /* Sign-extend a 24-bit I2S slot [23:0] to a 32-bit signed int. */
-static inline int32_t s24_sign_extend(int32_t raw) { return (raw << 8) >> 8; }
+static inline int32_t s24_sign_extend(int32_t raw) { return (int32_t)((uint32_t)raw << 8) >> 8; }
 /* Saturate to the 24-bit signed range [-8388608, +8388607]. */
 static inline int32_t s24_saturate(int32_t x) {
     if (x >  0x007FFFFF) return  0x007FFFFF;
