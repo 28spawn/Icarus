@@ -179,6 +179,16 @@ To build with Bluetooth LE enabled:
 powershell -ExecutionPolicy Bypass -File "custom-fw/build.ps1" -BLE
 ```
 
+#### Bluetooth LE build in one step
+
+The published releases are built with the radio off. To make the Bluetooth build for your own unit, double-click `Build-Icarus-BLE.bat` in the repository root (or download just `Build-Icarus-BLE.ps1` and run it: it clones the repository next to itself). The script:
+
+1. checks for Git, Python 3.10+ with `numpy`, the LLVM-MinGW `clang` and the JieLi pi32v2 toolchain, and offers to install whatever is missing (winget, pip, and JieLi's own installer from JieLi's server);
+2. updates the sources to the latest `main` (only when the clone is on `main` with no local changes; `-NoUpdate` skips this);
+3. runs the full checked build with `-BLE` and prints the path and SHA-256 of the package it built (`custom-fw\Icarus_BLE.fwsc`, a git-ignored file; the tracked release folder is put back to its committed state).
+
+`-CheckOnly` stops after the requirement checks; `-Yes` answers every install question with yes. The resulting image enables the radio transmitter: it is for your own unit, and its use must follow your local radio regulations.
+
 ### Running the Desktop Emulator
 ```powershell
 powershell -ExecutionPolicy Bypass -File "custom-fw/emu/run_emu.ps1"
