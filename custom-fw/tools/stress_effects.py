@@ -21,7 +21,7 @@ The order is the point. A synthesizer after the cabinet runs on the cabinet's
 high-passed output, an amp after the EQ distorts the EQ's boost, and so on.
 This is what finds the combinations that "bug the audio".
 
-    python custom-fw/tools/stress_effects.py --dll custom-fw/emu/pocket_amp_emu.dll
+    python custom-fw/tools/stress_effects.py --dll custom-fw/emu/icarus_emu.dll
 
 The method, the signals and the pass criteria are written up in
 custom-fw/test/EFFECT_MATRIX.md - read that for the reasoning.
@@ -496,7 +496,7 @@ def check_toggle(run, failures):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dll", default=os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "emu", "pocket_amp_emu.dll"))
+        os.path.abspath(__file__))), "emu", "icarus_emu.dll"))
     ap.add_argument("--wav", default=os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "emu", "samples", "rock_riff.wav"))
     ap.add_argument("--quick", action="store_true", help="only the single-effect cases")

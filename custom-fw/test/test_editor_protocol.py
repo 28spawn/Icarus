@@ -1,7 +1,7 @@
 """The web editor's protocol on the firmware's own parser: the state record (cmd 80), the name lists (cmd 81),
 and the live cabinet upload (cmd 25 / 34 / 48, target 2). MIDI changes made through the MIDI handler must show in the record.
 
-    python custom-fw/test/test_editor_protocol.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_editor_protocol.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import math
@@ -13,7 +13,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_editor_"), "flash.bin")
-dll_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "pocket_amp_emu.dll")
+dll_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "icarus_emu.dll")
 d = ctypes.CDLL(dll_path)
 d.emu_init()
 d.emu_feed_sysex_bytes.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint32]

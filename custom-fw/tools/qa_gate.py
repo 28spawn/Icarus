@@ -656,7 +656,7 @@ def stage_synth(g: Gate):
 # Stage F - functional regression on the emulator DLL and the WebAssembly build
 def stage_functional(g: Gate):
     print("\n== F: functional regression (emulator DLL + WebAssembly) ==")
-    dll = FW / "emu" / "pocket_amp_emu.dll"
+    dll = FW / "emu" / "icarus_emu.dll"
     node = shutil.which("node")
     wasm = FW / "wasm" / "out" / "pocket_amp.wasm"
     if g.args.skip_build:

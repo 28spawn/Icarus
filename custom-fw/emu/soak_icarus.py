@@ -28,7 +28,7 @@ if os.environ.get("PA_SOAK_CHILD") != "1":
         sys.exit(1)
 
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_soak_"), "flash.bin")
-d = ctypes.CDLL(str(EMU / "pocket_amp_emu.dll"))
+d = ctypes.CDLL(str(EMU / "icarus_emu.dll"))
 d.emu_ui_tap.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
 d.emu_process_audio_f32.argtypes = [ctypes.POINTER(ctypes.c_float)] * 3 + [ctypes.c_int]
 d.emu_select_preset.argtypes = [ctypes.c_int]

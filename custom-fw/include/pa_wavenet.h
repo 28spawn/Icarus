@@ -8,7 +8,7 @@
  *
  * Designed for both:
  *   - JieLi AC791N dual 320 MHz pi32v2 bare-metal SoC (fits within 336 KB POOL RAM, zero dynamic alloc)
- *   - Host Emulator DLL (pocket_amp_emu.dll)
+ *   - Host Emulator DLL (icarus_emu.dll)
  */
 #ifndef PA_WAVENET_H
 #define PA_WAVENET_H

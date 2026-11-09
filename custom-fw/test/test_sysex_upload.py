@@ -12,7 +12,7 @@ The transfer sequence is: cmd 25 (the length) + cmd 34 (the raw bytes) +
 cmd 48 (the commit). This drives the custom firmware's own parser with
 that sequence and checks that the capture lands in flash byte for byte.
 
-    python custom-fw/test/test_sysex_upload.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_sysex_upload.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import os
@@ -25,7 +25,7 @@ ROOT = os.path.dirname(HERE)
 import tempfile  # noqa: E402
 _scratch = tempfile.mkdtemp(prefix="pa_sysex_scratch_")
 os.environ["PA_FLASH_FILE"] = os.path.join(_scratch, "flash.bin")
-DEFAULT_DLL = os.path.join(ROOT, "emu", "pocket_amp_emu.dll")
+DEFAULT_DLL = os.path.join(ROOT, "emu", "icarus_emu.dll")
 
 dll_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DLL
 d = ctypes.CDLL(dll_path)

@@ -13,7 +13,7 @@
   [8] the new reverbs: PLATE leaves a tail; AMBIENCE's reflections sit inside SIZE and
       it leaves no long tail
 
-    python custom-fw/emu/test_dly_rev.py [pocket_amp_emu.dll]
+    python custom-fw/emu/test_dly_rev.py [icarus_emu.dll]
 """
 import ctypes
 import math
@@ -34,7 +34,7 @@ import gen_test_audio    # noqa: E402
 import tempfile  # noqa: E402
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_dlyrev_"), "flash.bin")
 
-d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "pocket_amp_emu.dll"))
+d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "icarus_emu.dll"))
 F = ctypes.POINTER(ctypes.c_float)
 d.emu_process_audio_f32.argtypes = [F, F, F, ctypes.c_int]
 d.emu_load_nam_struct.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint32]

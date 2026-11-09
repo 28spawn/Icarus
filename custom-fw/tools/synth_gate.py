@@ -189,7 +189,7 @@ def check_frames(cc, tmp):
 
 def check_soak(quick):
     """SYN-05"""
-    dll = FW / "emu" / "pocket_amp_emu.dll"
+    dll = FW / "emu" / "icarus_emu.dll"
     if quick or not dll.exists():
         return [("SYN-05", "SKIP", "emulator soak skipped" + (" (--quick)" if quick else " (no emulator DLL: run build.ps1)"), "")]
     results = []

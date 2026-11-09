@@ -20,7 +20,7 @@ Runs are compared within 2e-6 (a few 24-bit LSBs), not bit for bit: the output s
 TPDF dither keeps its random state across emu_init(), and the very first run after the DLL
 loads starts from slightly different firmware state, so one warm-up run is done first.
 
-    python custom-fw/emu/test_block_adapter.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/emu/test_block_adapter.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import os
@@ -30,7 +30,7 @@ import sys
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DLL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "pocket_amp_emu.dll")
+DLL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "icarus_emu.dll")
 d = ctypes.CDLL(os.path.abspath(DLL))
 fp = ctypes.POINTER(ctypes.c_float)
 d.emu_process_audio_f32.argtypes = [fp, fp, fp, ctypes.c_int]

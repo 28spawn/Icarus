@@ -2,7 +2,7 @@
  * custom-fw/emu/emu_bridge.c — Pocket Amp Hardware-in-the-Loop (HIL) Native C Emulator Bridge
  *
  * Compiles the actual Pocket Amp custom firmware C modules into a high-speed shared library
- * (pocket_amp_emu.dll) for:
+ * (icarus_emu.dll) for:
  *   - Real-time 44.1 kHz ASIO audio streaming (ASIO In -> Pocket Amp DSP -> ASIO Out)
  *   - Pixel-accurate ST7789/ST7735S RGB565 LCD framebuffer capture -> HTML5 Canvas
  *   - Live physical button / chord combo / PARA rotary encoder / expression pot simulation

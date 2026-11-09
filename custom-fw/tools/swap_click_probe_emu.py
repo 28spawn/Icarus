@@ -90,7 +90,7 @@ def main():
     ap.add_argument("--noise-limit", type=int, default=8, help="most swaps (of 40) allowed an early burst with a NOISY input (0.0003 rms, what a real input jack gives): over 0.01 FS and over 5x the preset's own steady level. Pack 187: 10 before the gate restarted shut, 5 after")
     ap.add_argument("--governor", action="store_true", help="also every step of the load governor (drive oversampling, cabinet partitions)")
     ap.add_argument("--models", action="store_true", help="also every model of every slot (default: presets only)")
-    ap.add_argument("--dll", default=os.path.join(FW, "emu", "pocket_amp_emu.dll"))
+    ap.add_argument("--dll", default=os.path.join(FW, "emu", "icarus_emu.dll"))
     ap.add_argument("-v", action="store_true")
     a = ap.parse_args()
     rig = Rig(a.dll)

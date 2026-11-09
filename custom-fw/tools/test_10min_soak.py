@@ -25,7 +25,7 @@ from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
 FW_DIR = TOOLS_DIR.parent
-DLL_PATH = FW_DIR / "emu" / "pocket_amp_emu.dll"
+DLL_PATH = FW_DIR / "emu" / "icarus_emu.dll"
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 64

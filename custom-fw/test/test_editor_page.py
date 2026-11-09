@@ -2,7 +2,7 @@
 the JS frames are byte-identical to tools/mvave_device.py's, the JS packets work over USB and BLE-MIDI, the JS state decoder reads the unit's record,
 the NAM strip and the cab check do what the notes say, and the tables in the page are the firmware's.
 
-    python custom-fw/test/test_editor_page.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_editor_page.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import json
@@ -16,7 +16,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_page_"), "flash.bin")
-dll = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "pocket_amp_emu.dll")
+dll = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "icarus_emu.dll")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import mvave_device as M  # noqa: E402
 

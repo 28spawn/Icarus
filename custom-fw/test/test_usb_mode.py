@@ -2,13 +2,13 @@
 input, a 600 Hz tone is what the PC plays. AMP: the unit's own sound (and the PC's) on the output. INTERFACE: the output is the PC's tone and nothing of the unit's, the recording is the dry
 guitar and never contains the PC's tone (no loopback possible). INTERFACE + DIRECT MONITOR: the dry guitar is also on the output.
 
-    python custom-fw/test/test_usb_mode.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_usb_mode.py [path/to/icarus_emu.dll]
 """
 import ctypes, math, os, sys, tempfile
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_usbmode_"), "flash.bin")
-d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "pocket_amp_emu.dll"))
+d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "icarus_emu.dll"))
 d.emu_init(); d.emu_midi_event.argtypes = [ctypes.c_int] * 3; d.emu_get_ui.argtypes = [ctypes.c_int]
 F = ctypes.POINTER(ctypes.c_float); d.emu_process_audio_f32.argtypes = [F, F, F, ctypes.c_int]
 d.emu_usb_capture_read.argtypes = [ctypes.c_char_p, ctypes.c_int]; d.emu_usb_capture_read.restype = ctypes.c_int
