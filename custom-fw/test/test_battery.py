@@ -1,12 +1,12 @@
 """The battery, the stock firmware's way: the percentage is computed from the averaged SARADC channel 9 count with the stock formula (0 below 528, 100 above 635, else
 (adc * 100 - 52646) / 109), the charging state comes from the USB power bit, and the warning levels follow the percentage. Through the real tick.
 
-    python custom-fw/test/test_battery.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_battery.py [path/to/icarus_emu.dll]
 """
 import ctypes, os, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_batt_"), "flash.bin")
-d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "pocket_amp_emu.dll"))
+d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "icarus_emu.dll"))
 d.emu_init(); d.emu_set_battery_adc.argtypes = [ctypes.c_int]; d.emu_set_charging.argtypes = [ctypes.c_int]; d.emu_get_ui.argtypes = [ctypes.c_int]
 fails = 0
 def check(ok, msg):

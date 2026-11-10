@@ -475,6 +475,7 @@ void pa_preset_apply_to_chain(const pa_preset_t *p, pa_fx_chain_t *chain) {
         if (p->amp_model_idx < PA_STOCK_AMP_COUNT) {
             PA_SWCP(0x50);
             pa_stock_load_amp(p->amp_model_idx, (pa_nam_model_t *)chain->slots[PA_SLOT_AMP]->state, NULL);
+            pa_user_nam_dsp_forget();
             PA_SWCP(0x51);
             g_active_amp_engine = 0;
             g_wn_model.active = 0;

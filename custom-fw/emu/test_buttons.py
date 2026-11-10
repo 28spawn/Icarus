@@ -23,14 +23,14 @@ the same adaptation the WASM shim makes in wasm/pa_wasm.c) and the web UI
 drives it. This test drives the SAME api the server drives and asserts the
 effect the firmware documents - the screen it switches to.
 
-Usage:  python custom-fw/emu/test_buttons.py [path/to/pocket_amp_emu.dll]
+Usage:  python custom-fw/emu/test_buttons.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DLL = os.path.join(HERE, "pocket_amp_emu.dll")
+DEFAULT_DLL = os.path.join(HERE, "icarus_emu.dll")
 
 dll_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DLL
 import tempfile

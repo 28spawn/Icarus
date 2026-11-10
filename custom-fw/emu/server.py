@@ -5,7 +5,7 @@ custom-fw/emu/server.py — M-VAVE Pocket Amp Live Firmware Emulator & ASIO Audi
 Features:
   - Enables PortAudio ASIO (`SD_ENABLE_ASIO=1`) to connect directly to USB ASIO audio interfaces
     (with automatic fallback to WASAPI / WDM-KS / MME audio endpoints).
-  - Loads `pocket_amp_emu.dll` (compiled from all 24 C firmware modules) via ctypes.
+  - Loads `icarus_emu.dll` (compiled from all 24 C firmware modules) via ctypes.
   - Streams real-time 44.1 kHz audio (128-sample blocks) through the C firmware's 8-slot DSP chain,
     0x01EE0400 hardware accelerator model, 16-unit Q21 GRU NAM engine, and Q18 FIR Cab convolver.
   - Hosts the interactive HTML5 Front Panel UI at http://localhost:8080 with live .nam and .wav IR hot-loading.
@@ -33,7 +33,7 @@ import sounddevice as sd
 from nam_loader import parse_nam_file, parse_wav_ir
 
 EMU_DIR = Path(__file__).resolve().parent
-DLL_PATH = EMU_DIR / "pocket_amp_emu.dll"
+DLL_PATH = EMU_DIR / "icarus_emu.dll"
 UI_HTML_PATH = EMU_DIR / "ui.html"
 
 SAMPLE_RATE = 44100

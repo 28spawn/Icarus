@@ -35,6 +35,7 @@ static uint32_t s_late_run;                       /* blocks in a row in which co
 typedef struct {
     pa_fx_chain_t *chain;
     volatile int32_t n, from, lo, has_r;
+    volatile int32_t ss;                            /* the stereo state of the finished block (what pa_fx_chain_run_front returned) */
     int32_t in_L[PA_BLOCK_N], in_R[PA_BLOCK_N];     /* core 1's block: its input, then (in place) its result */
     int32_t dry_L[PA_BLOCK_N], dry_R[PA_BLOCK_N];   /* core 1's own crossfade scratch */
 } smp_ctx_t;
@@ -45,7 +46,7 @@ static uint32_t s_job;
 
 static void post_job(uint32_t unused) {
     (void)unused;
-    pa_fx_chain_run_front(g.chain, g.in_L, g.has_r ? g.in_R : 0, (int)g.n, (int)g.lo, (int)g.from, g.dry_L, g.dry_R);
+    g.ss = pa_fx_chain_run_front(g.chain, g.in_L, g.has_r ? g.in_R : 0, (int)g.n, (int)g.lo, (int)g.from, g.dry_L, g.dry_R);
     __asm__ volatile("csync" ::: "memory");
 }
 
@@ -72,7 +73,8 @@ static void smp_fail(uint32_t why) {
     SMPS[1] = 0u; SMPS[6] = why;
 }
 
-static void handoff(pa_fx_chain_t *chain, int32_t *L, int32_t *R, int n, int from, int lo) {
+/* Returns the stereo state of the block it gives back (0 for a silent one). */
+static int handoff(pa_fx_chain_t *chain, int32_t *L, int32_t *R, int n, int from, int lo) {
     if (s_pending) {
         const uint32_t t0 = plat_ticks24();
         /* A late block is not a dead core. Steady state: core 1 finishes inside the block (core 0 waits 5 us at most), so 1.2 ms is slack; the first 4 jobs after the start keep the
@@ -87,11 +89,10 @@ static void handoff(pa_fx_chain_t *chain, int32_t *L, int32_t *R, int n, int fro
             SWD[3] = SWD[3] + 1u;                                                     /* late blocks, all told */
             if (++s_late_run >= SMP_LATE_MAX) {
                 smp_fail(4u);
-                pa_fx_chain_run_front(chain, L, R, n, lo, from, g.dry_L, g.dry_R);   /* this block's front runs here, with no latency */
-                return;
+                return pa_fx_chain_run_front(chain, L, R, n, lo, from, g.dry_L, g.dry_R);   /* this block's front runs here, with no latency */
             }
             for (int i = 0; i < n; i++) { L[i] = 0; if (R) R[i] = 0; }
-            return;
+            return 0;
         }
         s_late_run = 0u;
         s_pending = 0;
@@ -109,12 +110,14 @@ static void handoff(pa_fx_chain_t *chain, int32_t *L, int32_t *R, int n, int fro
         const int32_t tl = g.in_L[i]; g.in_L[i] = L[i]; L[i] = tl;
         if (R) { const int32_t tr = g.in_R[i]; g.in_R[i] = R[i]; R[i] = tr; }
     }
+    const int ss = (int)g.ss;                                     /* of the block just taken: read before the next job can write it */
     g.chain = chain; g.n = n; g.from = from; g.lo = lo; g.has_r = (R != 0);
     s_job = pa_c1_submit(post_job, 0u);
     s_pending = 1u;
     if (s_swd_first) { s_swd_job_first = 1u; s_swd_first = 0u; s_swd_rec = (SWD[2] + SWD_N - 1u) % SWD_N; }
     SMPS[2] = SMPS[2] + 1u;
     SMPS[3] = pa_c1_job_ticks_last(); SMPS[4] = pa_c1_job_ticks_max();
+    return ss;
 }
 
 void pa_smp_wait_idle(void) {                                     /* overrides the weak one in pa_audio_core.c */
@@ -125,6 +128,7 @@ void pa_smp_wait_idle(void) {                                     /* overrides t
     }
     memset(g.in_L, 0, sizeof g.in_L);                             /* the block in flight belongs to the old chain: drop it */
     memset(g.in_R, 0, sizeof g.in_R);
+    g.ss = 0;
 }
 
 void pa_smp_init(pa_fx_chain_t *chain) {
@@ -135,6 +139,7 @@ void pa_smp_init(pa_fx_chain_t *chain) {
     s_swd_first = 0u; s_swd_job_first = 0u; s_swd_widle_fail = 0u; s_swd_rec = 0u; s_late_run = 0u;
     g.chain = chain;
     memset(g.in_L, 0, sizeof g.in_L); memset(g.in_R, 0, sizeof g.in_R);
+    g.ss = 0;
 #if PA_SMP_AUDIO
     if ((g_boot_buttons & 0x10u) || (g_boot_buttons & 0x07u) == 0x07u) { SMPS[6] = 2u; return; }   /* ">" held = one core; the core-1 test combination */
     if (!pa_c1_start()) { SMPS[6] = 3u; return; }

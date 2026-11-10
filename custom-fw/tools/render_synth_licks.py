@@ -22,7 +22,7 @@ import wave
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW = os.path.dirname(HERE)
-DLL = os.path.join(FW, "emu", "pocket_amp_emu.dll")
+DLL = os.path.join(FW, "emu", "icarus_emu.dll")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(FW, "qa", "renders", "synth_licks")
 os.makedirs(OUT, exist_ok=True)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_render_"), "flash.bin")

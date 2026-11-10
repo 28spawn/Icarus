@@ -30,7 +30,7 @@
  * the device-info record and the OTA ID block both carry this number.
  * One definition, so the two cannot drift apart. */
 #ifndef PA_FW_VERSION
-#define PA_FW_VERSION          10u    /* shown as 0.10 (v0.1.0); the OTA ID block says V010 */
+#define PA_FW_VERSION          11u    /* shown as 0.11 (v0.1.1); the OTA ID block says V011 */
 #endif
 #ifndef PA_DEVICE_NAME
 #if defined(BOARD_BLACKBOX)

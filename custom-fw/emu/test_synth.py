@@ -15,7 +15,7 @@ things a unit-level synthesizer gate must catch:
   * the block keeps its preset across a live bypass/on cycle.
 
 Usage:
-    python custom-fw/emu/test_synth.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/emu/test_synth.py [path/to/icarus_emu.dll]
 
 Exit 0 = PASS, 1 = FAIL.
 """
@@ -27,7 +27,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW = os.path.dirname(HERE)
-DLL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "pocket_amp_emu.dll")
+DLL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "icarus_emu.dll")
 
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_synth_"), "flash.bin")
 

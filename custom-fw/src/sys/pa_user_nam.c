@@ -411,6 +411,7 @@ int pa_user_nam_add(const char *name, uint8_t type, uint8_t voicing, uint8_t has
  * (a blob an interrupted upload left, a slot no registry entry names). Returns the number of sectors erased, or a negative code. */
 int pa_user_nam_clear(void) {
     if (!g_nam_registry_inited) pa_user_nam_init();
+    pa_user_nam_dsp_forget();                                            /* nothing stored is loaded any more */
     for (uint32_t i = 0; i < PA_USER_NAM_MAX_COUNT; i++) {
         if (!(g_nam_registry.slots[i].flags & NAM_FLAG_EMBEDDED) || !g_nam_registry.slots[i].active) memset(&g_nam_registry.slots[i], 0, sizeof g_nam_registry.slots[i]);
     }
@@ -428,6 +429,28 @@ int pa_user_nam_clear(void) {
     }
     pa_spi_nor_end();
     return rc ? rc : n;
+}
+
+/* The capture pa_user_nam_load_into_dsp() put in the engine last, and the models it went into (0xFF: none, or a stock amp has replaced it). */
+static uint8_t             s_dsp_user = 0xFFu;   /* the capture pa_user_nam_load_into_dsp() put in the engine last */
+static pa_wavenet_model_t *s_dsp_wn;
+static pa_nam_model_t     *s_dsp_gru;
+void pa_user_nam_dsp_forget(void) { s_dsp_user = 0xFFu; }
+
+int pa_user_nam_set_makeup(uint8_t user_idx, int8_t makeup_db_x4) {
+    if (!g_nam_registry_inited) pa_user_nam_init();
+    if (user_idx >= g_nam_registry.count || !g_nam_registry.slots[user_idx].active) return -1;
+    if (makeup_db_x4 < -64) makeup_db_x4 = -64;
+    if (makeup_db_x4 > 63)  makeup_db_x4 = 63;
+    pa_user_nam_slot_t *slot = &g_nam_registry.slots[user_idx];
+    if (slot->makeup_db_x4 == makeup_db_x4) return 0;                    /* nothing to write */
+    slot->makeup_db_x4 = makeup_db_x4;
+    if (s_dsp_user == user_idx) {                                         /* the one playing: the new level at once (one float / one word the audio path reads per block) */
+        const float g = powf(10.0f, (float)makeup_db_x4 / 80.0f);
+        if (slot->type == 0u && s_dsp_gru) s_dsp_gru->scale_q21 = (int32_t)(g * (float)(1 << PA_NAM_Q_SHIFT));
+        else if (s_dsp_wn) s_dsp_wn->makeup_gain = g;
+    }
+    return commit_registry_to_flash();
 }
 
 /* Rename a registered capture. The SysEx upload protocol carries the model
@@ -457,6 +480,7 @@ int pa_user_nam_delete(uint8_t user_idx) {
     if (!g_nam_registry_inited) pa_user_nam_init();
     if (user_idx >= g_nam_registry.count || !g_nam_registry.slots[user_idx].active) return -1;
     g_nam_registry.slots[user_idx].active = 0;
+    if (s_dsp_user == user_idx) s_dsp_user = 0xFFu;
     while (g_nam_registry.count > 0 && !g_nam_registry.slots[g_nam_registry.count - 1].active) {
         g_nam_registry.count--;
     }
@@ -468,6 +492,7 @@ void pa_user_nam_rollback(uint8_t user_idx) {
     if (s_backup_valid && s_backup_idx == (int)user_idx && user_idx < PA_USER_NAM_MAX_COUNT) {
         /* Failed overwrite: restore previous working model */
         g_nam_registry.slots[user_idx] = s_backup_slot;
+        if (s_dsp_user == user_idx) s_dsp_user = 0xFFu;
         commit_registry_to_flash();
         s_backup_valid = 0;
     } else {
@@ -498,6 +523,7 @@ void pa_user_nam_prefetch(uint8_t user_idx) {
 }
 
 int pa_user_nam_load_into_dsp(uint8_t user_idx, pa_nam_model_t *gru_model, pa_wavenet_model_t *wn_model) {
+    s_dsp_user = 0xFFu;                                                  /* set again at the end, once this capture is in */
     if (!g_nam_registry_inited) pa_user_nam_init();
     if (user_idx >= g_nam_registry.count || !g_nam_registry.slots[user_idx].active) return -1;
 
@@ -608,5 +634,6 @@ int pa_user_nam_load_into_dsp(uint8_t user_idx, pa_nam_model_t *gru_model, pa_wa
         pa_fx_chain_set_slot_enabled(&g_fx_chain, PA_SLOT_CAB, 0);
     }
 
+    s_dsp_user = user_idx; s_dsp_wn = wn_model; s_dsp_gru = gru_model;     /* for pa_user_nam_set_makeup() */
     return 0;
 }

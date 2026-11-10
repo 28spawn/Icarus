@@ -31,7 +31,7 @@ Use **Google Chrome or Microsoft Edge** (with native Web MIDI enabled) and a sta
 
 | Tool | What it does |
 |---|---|
-| [**Icarus Web Editor**](custom-fw/web/Icarus_Web_Editor.html) | **Flash, back up, and edit without compiling.** Connect via Web MIDI SysEx to install firmware packages (`.fwsc`), back up your entire flash memory, verify flash byte-for-byte in real time, edit presets, and restore factory stock firmware with a single click. |
+| [**Icarus Web Editor**](custom-fw/web/Icarus_Web_Editor.html) | **Flash and edit without compiling.** Connect via Web MIDI SysEx to install firmware packages (`.fwsc`), compare the unit's flash with a file, edit presets, load amp captures and cabinets, and restore the original firmware from your own unmodified `Pocket AMP.fwsc`. |
 | [**Desktop HIL Emulator**](custom-fw/emu/) | **The real firmware running on your PC.** Streams live low-latency guitar audio through your USB ASIO interface into the identical C firmware DSP engine. Features a 240×240 LCD front panel, live oscilloscope, peak meters, drag-and-drop `.nam` and `.wav` IR hot-loaders, and 15 dry guitar DI auditioning captures. |
 | [**WebAssembly Workbench**](custom-fw/wasm/) | **Browser-native audio simulation.** Runs the portable audio core jack (`pa_audio_core_process_half`) compiled to WebAssembly via AudioWorklet. |
 
@@ -39,18 +39,18 @@ Use **Google Chrome or Microsoft Edge** (with native Web MIDI enabled) and a sta
 
 ## What it does
 
-- **Eight reorderable effect slots**: Change signal routing dynamically on the fly (`DYN → DRIVE → AMP → CAB → EQ → MOD → DELAY → REVERB → SYNTH`).
+- **Five reorderable effect blocks**: Change signal routing dynamically on the fly (`DYN → SYNTH → AMP → CAB → EQ` by default). The chain keeps eight slots for preset and SysEx compatibility; the MOD, DELAY and REVERB slots are retired.
 - **WaveNet Neural Amp Modeling**: Real-time Float32 WaveNet neural inference for NAM A2 captures, running on CPU Core 1 via lock-free SMP handoff.
 - **Icarus Analog Guitar Synthesizer**: Strictly monophonic pitch-tracking analog synthesizer featuring zero-delay feedback (ZDF) resonant ladder filtering, dual band-limited oscillators, sub-octaves, waveshaping, and ADSR envelope followers (mono single-note tracking; polyphonic chords are not supported).
 - **Partitioned FIR Cabinet Convolution**: Up to 2048 taps of stereo impulse response processing with hardware vector accelerator offload.
-- **Chromatic Tuner & Live Bank Mode**: YIN-based needle tuner with selectable reference pitch (435–445 Hz) and 4-slot live performance banks.
+- **Chromatic Tuner & Live Bank Mode**: YIN-based needle tuner with selectable reference pitch (430–450 Hz) and 4-slot live performance banks.
 - **Bluetooth LE MIDI**: Wireless parameter control and footswitch integration (e.g. Chocolate Plus) via the integrated open Optimist BLE stack.
 
 ---
 
 ## Audio engine and effect blocks
 
-The default signal order is `DYN → SYNTH → AMP → CAB → EQ`. Any block can be moved anywhere in the chain using **Moving Mode** (`PARA HOLD 2s`), and bypassed nodes dynamically reclaim memory and CPU cycles.
+The default signal order is `DYN → SYNTH → AMP → CAB → EQ`. Any block can be moved anywhere in the chain using **Moving Mode** (`PARA HOLD 1.6s`), and bypassed nodes dynamically reclaim memory and CPU cycles.
 
 | Block | Models & algorithms in current source |
 |---|---|
@@ -101,12 +101,12 @@ The built-in guitar synthesizer (`PA_SLOT_SYNTH`) transforms electric guitar inp
 ### 1. Back up first
 1. Connect the Pocket AMP to your computer with a USB-C data cable and power the unit ON.
 2. Open [`custom-fw/web/Icarus_Web_Editor.html`](custom-fw/web/Icarus_Web_Editor.html) in Chrome or Edge.
-3. Click **Connect Device** and navigate to the **Firmware** tab.
-4. Click **Backup Flash** to save a complete, byte-for-byte image of your unit's current flash memory.
+3. Click **Connect USB / MIDI**.
+4. Keep an unmodified `Pocket AMP.fwsc` from the vendor's download page: the editor needs it to restore the original firmware. For a complete, byte-for-byte image of your unit's flash, use the download-mode dump described in [RECOVERY.md](RECOVERY.md); the Web Editor does not make one.
 
 ### 2. Install Icarus
-1. In the Web Editor's Firmware tab, select the released `Icarus.fwsc` (or `Icarus_app_area.bin`).
-2. Click **Install Icarus Firmware**.
+1. Under **Firmware update** in the Web Editor, pick `Icarus_0.11.fwsc` from the [release](https://github.com/28spawn/Icarus/releases) (or the `Icarus.fwsc` your own build writes).
+2. Click **Install this firmware**.
 3. The editor transfers the image over USB MIDI SysEx. The running firmware verifies the container signature and memory bounds, stages the update loader into SRAM, and writes the application partition.
 4. The unit will reboot automatically into Icarus.
 
@@ -115,7 +115,7 @@ The built-in guitar synthesizer (`PA_SLOT_SYNTH`) transforms electric guitar inp
 ## Getting back (Restoring stock firmware)
 
 If you ever wish to return to the factory stock firmware:
-- **One-Click via Web Editor**: Connect in [`custom-fw/web/Icarus_Web_Editor.html`](custom-fw/web/Icarus_Web_Editor.html) and click **Restore Stock Firmware**. The editor restores the stock firmware container.
+- **One-Click via Web Editor**: Connect in [`custom-fw/web/Icarus_Web_Editor.html`](custom-fw/web/Icarus_Web_Editor.html), pick your own unmodified `Pocket AMP.fwsc` (it is checked by its SHA-256; this project does not ship it) and click **Restore the original firmware**.
 - **Hardware Mask-ROM Recovery**: If a firmware update was interrupted or flash was corrupted, the unit's built-in bootloader (`WL82 UBOOT1.00`) can be entered manually:
   1. Hold **`HOME` + `PARA` simultaneously for 2 seconds** while powered on, or power on while forcing ROM download mode via USB data lines.
   2. The unit enumerates on USB as `WL82 UBOOT1.00`.
@@ -131,10 +131,10 @@ If you ever wish to return to the factory stock firmware:
 |---|---|
 | **`HOME` (Tap)** | **Universal Home**: Returns to the main home screen from any editor. When on the Home screen, opens the **Settings Menu** (Global EQ, Display Grid/List view, footswitch mappings, system information, and factory reset). |
 | **`HOME` (Hold 1.5 s)** | **Toggle Stomp / Preset Mode**: Switches the main screen between **PRESET Mode** and **STOMP Mode** (buttons act as instant on/off pedals). |
-| **`PARA` (Rotate)** | **Navigate**: Moves the cursor across the 8 effect blocks in the signal chain. Inside menus, adjusts parameter values. |
+| **`PARA` (Rotate)** | **Navigate**: Moves the cursor across the effect blocks in the signal chain. Inside menus, adjusts parameter values. |
 | **`PARA` (Click)** | **Edit Block**: Opens the deep parameter editor for the highlighted effect block. Click again inside the editor to toggle between selecting parameters and editing values. |
 | **`PARA` (Hold 1.0 s)** | **Save Preset**: Opens the "Save to" dialog to store the current tone, edit preset names, or copy settings to slots `P01`–`P80`. |
-| **`PARA` (Hold 2.0 s)** | **Reorder Signal Chain (Moving Mode)**: Lifts the highlighted block. Rotate `PARA` left or right to move the block anywhere in the 8-slot chain. Click `PARA` to drop it into place. |
+| **`PARA` (Hold 1.6 s)** | **Reorder Signal Chain (Moving Mode)**: Lifts the highlighted block. Rotate `PARA` left or right to move the block anywhere in the chain. Click `PARA` to drop it into place. |
 | **`<` / `>` (Tap)** | Changes current preset down/up (`P01` .. `P80`). Inside editors, navigates parameters. |
 | **`VOL-` / `VOL+` (Tap)** | Adjusts master device output volume with an on-screen level overlay. |
 
@@ -144,7 +144,7 @@ Press the following button pairs simultaneously from the home screen:
 
 | Key Combination | Shortcut Target | Description |
 |---|---|---|
-| **`VOL-` + `VOL+`** | **Chromatic Tuner** | High-precision needle tuner, detected note, pitch frequency in cents, and selectable Reference Pitch (435–445 Hz). Toggle between MUTE and LIVE pass-through. |
+| **`VOL-` + `VOL+`** | **Chromatic Tuner** | High-precision needle tuner, detected note, pitch frequency in cents, and selectable Reference Pitch (430–450 Hz). Toggle between MUTE and LIVE pass-through. |
 | **`<` + `>`** | **Live Bank Mode** | Groups presets into 4-slot performance banks (`P01-P04`, `P05-P08`, etc.). Switch slots instantly with single button presses. |
 | **`HOME` + `VOL+`** | **Icarus Synth** | Direct shortcut into the Icarus analog synthesizer laboratory interface. |
 | **`HOME` + `PARA` (Hold 2 s)** | **Manual ROM Download Mode** | Hardware shortcut to reboot directly into mask-ROM USB download mode for low-level recovery. |
@@ -157,7 +157,7 @@ For developers building firmware images, running regression test suites, or deve
 
 ### Prerequisites
 - **Windows 10/11** with PowerShell 5.1 or PowerShell 7.
-- **Python 3.10+** on `PATH` with `numpy` and `sounddevice` (for the desktop emulator).
+- **Python 3.10+** on `PATH` with `numpy`, `sounddevice` and `soxr` (for the desktop emulator): `python -m pip install -r custom-fw/emu/requirements.txt`.
 - **LLVM / Clang for host builds** (`clang.exe` on `PATH`, e.g. via LLVM-MinGW).
 - **JieLi pi32v2 toolchain for target builds** (`clang.exe`, `pi32v2-ld.exe`, `llvm-objcopy.exe`). The script searches `$env:PI32_ROOT` and `C:\JL\pi32`.
 
@@ -169,9 +169,9 @@ powershell -ExecutionPolicy Bypass -File "custom-fw/build.ps1"
 ```
 
 The build is a straight line where every stage is strictly checked (`Invoke-Checked`):
-1. **Host Verification**: Compiles and executes unit tests (`test_dsp_chain`, `test_tuner`, `test_reclaim`, `test_envelope`, `test_filter`, `test_icarus_synth`, etc.).
+1. **Host Verification**: Compiles and executes unit tests (`test_dsp_chain`, `test_tuner`, `test_reclaim`, `test_envelope`, `test_filter`, `test_pitch`, etc.).
 2. **pi32v2 Cross-Compilation**: Compiles all firmware modules with `-target pi32v2 -mcpu=r3 -O2`, links with group scanning (`libcompiler_rt.a`, `libm.a`, `libc.a`), and extracts memory sections (`.text`, `.ram_text`, `.c1_text`, `.ramfn`, `.flashfn`, `.data`) to exact calculated load addresses.
-3. **Effect & Input Matrix**: Compiles the native emulator DLL and runs automated permutation sweeps across all 8 effect blocks and button gestures.
+3. **Effect & Input Matrix**: Compiles the native emulator DLL and runs automated permutation sweeps across the effect blocks and button gestures.
 4. **Vendor-Free Packaging**: Uses `custom-fw/tools/onyx_pkg_make.py` and the MPL-2.0 `onyx_loader.bin` to construct signed `.fwsc` and `.ufw` containers from scratch without proprietary vendor binaries.
 
 To build with Bluetooth LE enabled:
@@ -179,11 +179,21 @@ To build with Bluetooth LE enabled:
 powershell -ExecutionPolicy Bypass -File "custom-fw/build.ps1" -BLE
 ```
 
+#### Bluetooth LE build in one step
+
+The published releases are built with the radio off. To make the Bluetooth build for your own unit, double-click `Build-Icarus-BLE.bat` in the repository root (or download just `Build-Icarus-BLE.ps1` and run it: it clones the repository next to itself). The script:
+
+1. checks for Git, Python 3.10+ with `numpy`, the LLVM-MinGW `clang` and the JieLi pi32v2 toolchain, and offers to install whatever is missing (winget, pip, and JieLi's own installer from JieLi's server);
+2. updates the sources to the latest `main` (only when the clone is on `main` with no local changes; `-NoUpdate` skips this);
+3. runs the full checked build with `-BLE` and prints the path and SHA-256 of the package it built (`custom-fw\Icarus_BLE.fwsc`, a git-ignored file; the tracked release folder is put back to its committed state).
+
+`-CheckOnly` stops after the requirement checks; `-Yes` answers every install question with yes. The resulting image enables the radio transmitter: it is for your own unit, and its use must follow your local radio regulations.
+
 ### Running the Desktop Emulator
 ```powershell
 powershell -ExecutionPolicy Bypass -File "custom-fw/emu/run_emu.ps1"
 ```
-Open `http://localhost:8080` in your browser to interact with the live virtual front panel and stream real guitar audio through the DSP engine.
+Or double-click `Start-Emulator.bat` in the repository root (`Start-WASM-Workbench.bat` starts the WebAssembly workbench). Open `http://localhost:8080` in your browser to interact with the live virtual front panel and stream real guitar audio through the DSP engine.
 
 ---
 

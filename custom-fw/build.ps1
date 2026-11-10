@@ -354,7 +354,7 @@ Invoke-Checked "the emulator DLL build" {
     powershell -ExecutionPolicy Bypass -File custom-fw/emu/build_dll.ps1 -Board $Board
 }
 Invoke-Checked "the effect matrix" {
-    python custom-fw/tools/stress_effects.py --dll custom-fw/emu/pocket_amp_emu.dll --types
+    python custom-fw/tools/stress_effects.py --dll custom-fw/emu/icarus_emu.dll --types
 }
 
 # ---- the input matrix and the firmware-core suites: no image is written unless every button, key combination and screen survives, alone and together --------
@@ -363,9 +363,9 @@ if ($DiagnosticBuild) {
     Write-Host "`n    DIAGNOSTIC BUILD: the input matrix is SKIPPED. Do not release this image." -ForegroundColor Yellow
 } else {
     Write-Host "`n=== [3b/5] The input matrix (buttons, key combinations, screens, synth x amp swaps, random walk) ===" -ForegroundColor Cyan
-    Invoke-Checked "the synth emulator suite" { python custom-fw/emu/test_synth.py custom-fw/emu/pocket_amp_emu.dll }
-    Invoke-Checked "the button suite" { python custom-fw/emu/test_buttons.py custom-fw/emu/pocket_amp_emu.dll }
-    Invoke-Checked "the input matrix" { python custom-fw/emu/test_matrix.py custom-fw/emu/pocket_amp_emu.dll }
+    Invoke-Checked "the synth emulator suite" { python custom-fw/emu/test_synth.py custom-fw/emu/icarus_emu.dll }
+    Invoke-Checked "the button suite" { python custom-fw/emu/test_buttons.py custom-fw/emu/icarus_emu.dll }
+    Invoke-Checked "the input matrix" { python custom-fw/emu/test_matrix.py custom-fw/emu/icarus_emu.dll }
 }
 
 # ---- the Onyx release package: built from scratch, with NO M-VAVE material in it (tools/onyx_pkg_make.py) ----

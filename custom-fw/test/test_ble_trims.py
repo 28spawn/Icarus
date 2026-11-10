@@ -1,13 +1,13 @@
 """The radio calibration the firmware reads from the unit's own record log at boot (include/pa_ble_trims.h, src/sys/pa_ble_trims.c): the four records 106, 107, 108 and 187 of the stock log at flash 0xB5000,
 checked the way tools/gen_ble_trims.py checks them. Through the emulator DLL, on the real log of the original backup (when it is on this machine) and on logs built here.
 
-    python custom-fw/test/test_ble_trims.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_ble_trims.py [path/to/icarus_emu.dll]
 """
 import ctypes, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import gen_ble_trims as G
-d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "pocket_amp_emu.dll"))
+d = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "emu", "icarus_emu.dll"))
 d.emu_ble_trims_parse.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p]
 fails = 0
 def check(ok, msg):

@@ -153,5 +153,8 @@ custom-fw/USER-STORE.md
 custom-fw/Recovery-Pocket_AMP_Custom/
 custom-fw/ble_matrix.csv
 
+# prebuilt emulator bundle (compiled: never in the repository)
+custom-fw/emu/dist/
+
 # generated UI screenshots (custom-fw/emu/snap_screens.py)
 custom-fw/emu/ui_shots/

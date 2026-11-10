@@ -96,6 +96,12 @@ void        pa_user_nam_get_amp_defaults(uint8_t user_idx, int32_t knobs_q21[6])
 void        pa_user_nam_prefetch(uint8_t user_idx);   /* main loop: read a capture into the scratch before a swap that will load it */
 int         pa_user_nam_load_into_dsp(uint8_t user_idx, pa_nam_model_t *gru_model, pa_wavenet_model_t *wn_model);
 int         pa_user_nam_set_name(uint8_t user_idx, const char *name);
+/* The output makeup of a stored capture, in 0.25 dB steps (-64..63 = -16..+15.75 dB): the web editor measures the capture on a reference DI at import and sends the gain that puts it at the
+ * stock amps' -18 dBFS RMS. Stored in the registry; applied at once if that capture is the one loaded. */
+int         pa_user_nam_set_makeup(uint8_t user_idx, int8_t makeup_db_x4);
+/* The amp engine no longer holds the stored capture it loaded last (a stock amp was loaded into it): a makeup change then goes to the registry only, and does not
+ * write the level of whatever model the engine runs now. Every stock-amp load calls it; a capture load, a delete and a clear do it themselves. */
+void        pa_user_nam_dsp_forget(void);
 int         pa_user_nam_delete(uint8_t user_idx);
 int         pa_user_nam_clear(void);   /* every stored capture and every blob sector wiped; the image's own captures stay; -> sectors erased or < 0 */
 void        pa_user_nam_rollback(uint8_t user_idx);

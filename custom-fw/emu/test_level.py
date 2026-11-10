@@ -13,7 +13,7 @@ the knob at 100 %, so the panel said one thing and the firmware did another.
 This checks the pot, the level law and the actual signal gain, so the
 emulator cannot quietly go quiet again.
 
-Usage:  python custom-fw/emu/test_level.py [path/to/pocket_amp_emu.dll]
+Usage:  python custom-fw/emu/test_level.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import math
@@ -21,7 +21,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DLL = os.path.join(HERE, "pocket_amp_emu.dll")
+DEFAULT_DLL = os.path.join(HERE, "icarus_emu.dll")
 
 dll_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DLL
 d = ctypes.CDLL(dll_path)

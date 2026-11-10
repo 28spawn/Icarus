@@ -2,7 +2,7 @@
  * custom-fw/emu/emu_bridge.c — Pocket Amp Hardware-in-the-Loop (HIL) Native C Emulator Bridge
  *
  * Compiles the actual Pocket Amp custom firmware C modules into a high-speed shared library
- * (pocket_amp_emu.dll) for:
+ * (icarus_emu.dll) for:
  *   - Real-time 44.1 kHz ASIO audio streaming (ASIO In -> Pocket Amp DSP -> ASIO Out)
  *   - Pixel-accurate ST7789/ST7735S RGB565 LCD framebuffer capture -> HTML5 Canvas
  *   - Live physical button / chord combo / PARA rotary encoder / expression pot simulation
@@ -275,6 +275,7 @@ EMU_EXPORT void emu_init(void) {
         /* Load corresponding factory stock amp model or user NAM capture & cabinet IR */
         if (initial_p.amp_model_idx < PA_STOCK_AMP_COUNT) {
             pa_stock_load_amp(initial_p.amp_model_idx, &g_nam_model, NULL);
+            pa_user_nam_dsp_forget();
             g_active_amp_engine = 0;
         } else {
             pa_user_nam_load_into_dsp(initial_p.amp_model_idx - PA_STOCK_AMP_COUNT, &g_nam_model, &g_wn_model);
@@ -309,7 +310,7 @@ static int32_t s_emu_jack_out[PA_BLOCK_N * 2];
 static void update_input_dots(const int32_t *jack_in) {
     int32_t max_abs = 0;
     for (int i = 0; i < PA_BLOCK_N; i++) {
-        int32_t s24 = (jack_in[2 * i] << 8) >> 8;
+        int32_t s24 = (int32_t)((uint32_t)jack_in[2 * i] << 8) >> 8;
         int32_t a = s24 < 0 ? -s24 : s24;
         if (a > max_abs) max_abs = a;
     }
@@ -360,8 +361,8 @@ static void emu_run_block(const float *in_mono, float *out_L, float *out_R,
 
     /* the 24-bit jack output -> float */
     for (int i = 0; i < PA_BLOCK_N; i++) {
-        int32_t l24 = (s_emu_jack_out[2 * i + 0] << 8) >> 8;
-        int32_t r24 = (s_emu_jack_out[2 * i + 1] << 8) >> 8;
+        int32_t l24 = (int32_t)((uint32_t)s_emu_jack_out[2 * i + 0] << 8) >> 8;
+        int32_t r24 = (int32_t)((uint32_t)s_emu_jack_out[2 * i + 1] << 8) >> 8;
         float l = (float)l24 / 8388608.0f;
         float r = (float)r24 / 8388608.0f;
         if (l >  1.0f) l =  1.0f;
@@ -1035,6 +1036,7 @@ EMU_EXPORT int emu_select_stock_amp(int amp_idx) {
     if (amp_idx < 0) return -1;
     if (amp_idx < (int)PA_STOCK_AMP_COUNT) {
         float dc_bias = 0.0f;
+        pa_user_nam_dsp_forget();
         if (pa_stock_load_amp((uint8_t)amp_idx, &g_nam_model, &dc_bias) != 0) return -2;
         g_active_amp_engine = 0;
         g_nam_node.active   = 1;

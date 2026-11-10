@@ -606,7 +606,7 @@ static uint32_t dg_spin(uint32_t mode, uint32_t until_ticks) {
             switch (mode) {
             case 1: x = x * 1664525u + 1013904223u; x ^= x >> 7; acc += x; break;                                  /* ALU only */
             case 2: acc += sram[(pos++) & 4095u]; break;                                                          /* SRAM reads */
-            case 3: sram[(pos++) & 4095u] = acc + pos; break;                                                     /* SRAM writes */
+            case 3: sram[pos & 4095u] = acc + pos; pos++; break;                                                     /* SRAM writes */
             case 4: acc += xip[(pos += 8u) & 0x1FFFFu]; break;                                                    /* flash reads, 32 B apart over 512 KB */
             case 5: acc += *tmr; break;                                                                           /* peripheral reads */
             default: break;
@@ -1160,8 +1160,8 @@ void pa_board_bt_mode_changed(uint8_t mode) { pa_ble_radio_set_enabled(mode != 0
  *   [9]  audio interrupt entries                           [10] audio bypass | accelerator broken<<8 | auto-bypass<<16
  *   [11] reserved */
 #define PA_TEST_STATE ((volatile uint32_t *)0x01C7C390u)
+extern uint32_t pa_alnk_isr_entries(void);
 static void pa_test_state_update(void) {
-    extern uint32_t pa_alnk_isr_entries(void);
     volatile uint32_t *t = PA_TEST_STATE;
     t[1]  = g_main_iters;
     t[2]  = (plat_ticks24() - g_boot_start_ticks) / 24000000u;

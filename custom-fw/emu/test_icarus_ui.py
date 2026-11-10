@@ -18,7 +18,7 @@ except ImportError:
     HAS_PIL = False
 
 EMU_DIR = Path(__file__).resolve().parent
-DLL_PATH = EMU_DIR / "pocket_amp_emu.dll"
+DLL_PATH = EMU_DIR / "icarus_emu.dll"
 SNAPSHOTS_DIR = EMU_DIR / "test_snapshots"
 SNAPSHOTS_DIR.mkdir(exist_ok=True)
 

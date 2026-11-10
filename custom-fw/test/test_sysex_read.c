@@ -34,6 +34,7 @@ int      pa_user_nam_get_count(void) { return 0; }
 int      pa_user_nam_is_active(uint8_t i) { (void)i; return 0; }
 int      pa_user_nam_delete(uint8_t i) { (void)i; return -1; }
 int      pa_user_nam_set_name(uint8_t i, const char *n) { (void)i; (void)n; return -1; }
+int      pa_user_nam_set_makeup(uint8_t i, int8_t x4) { (void)i; (void)x4; return -1; }
 int      pa_user_cab_add(const char *n, int slot, const int32_t *t, uint32_t c) { (void)n; (void)slot; (void)t; (void)c; return -5; }
 int      pa_user_cab_delete(uint8_t i) { (void)i; return -1; }
 int      pa_user_nam_clear(void) { return -1; }

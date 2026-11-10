@@ -43,7 +43,7 @@ if "--seed" in args:
 if QUICK:
     WALK = min(WALK, 600)
 pos = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in ("--walk", "--seed"))]
-DLL = pos[0] if pos else os.path.join(HERE, "pocket_amp_emu.dll")
+DLL = pos[0] if pos else os.path.join(HERE, "icarus_emu.dll")
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_matrix_"), "flash.bin")
 
 d = ctypes.CDLL(DLL)

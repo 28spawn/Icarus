@@ -3,7 +3,7 @@ firmware tick (pa_ui_midi_control), then read back from the UI state. Built from
 working (and the map marks it [N] = proposed). Also: the value rules (buttons act at >= 64, continuous controls at every value), the NRPN selection rules, out-of-range values, and the preset
 SAVE command (a knob set by MIDI survives a preset change after CC 88).
 
-    python custom-fw/test/test_midi_control.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_midi_control.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import os
@@ -13,7 +13,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW = os.path.dirname(HERE)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_midictl_"), "flash.bin")      # a private simulated chip: the save writes into it
-dll = sys.argv[1] if len(sys.argv) > 1 else os.path.join(FW, "emu", "pocket_amp_emu.dll")
+dll = sys.argv[1] if len(sys.argv) > 1 else os.path.join(FW, "emu", "icarus_emu.dll")
 d = ctypes.CDLL(dll)
 d.emu_init()
 d.emu_midi_event.argtypes = [ctypes.c_int] * 3

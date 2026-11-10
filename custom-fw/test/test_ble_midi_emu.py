@@ -12,7 +12,7 @@ This drives the emulator's DLL exactly as a BLE write would arrive - through
 and checks that a command sent over BLE produces the SAME reply as the same
 command sent over the raw USB MIDI path.
 
-    python custom-fw/test/test_ble_midi_emu.py [path/to/pocket_amp_emu.dll]
+    python custom-fw/test/test_ble_midi_emu.py [path/to/icarus_emu.dll]
 """
 import ctypes
 import os
@@ -20,7 +20,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-DEFAULT_DLL = os.path.join(ROOT, "emu", "pocket_amp_emu.dll")
+DEFAULT_DLL = os.path.join(ROOT, "emu", "icarus_emu.dll")
 
 dll_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DLL
 d = ctypes.CDLL(dll_path)

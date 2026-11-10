@@ -13,7 +13,7 @@ OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else EMU / "ui_shots"
 OUT.mkdir(parents=True, exist_ok=True)
 os.environ["PA_FLASH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="pa_snap_"), "flash.bin")
 
-d = ctypes.CDLL(str(EMU / "pocket_amp_emu.dll"))
+d = ctypes.CDLL(str(EMU / "icarus_emu.dll"))
 d.emu_init.restype = None
 d.emu_ui_tap.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
 d.emu_ui_enc.argtypes = [ctypes.c_int32]
