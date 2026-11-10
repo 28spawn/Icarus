@@ -275,6 +275,7 @@ EMU_EXPORT void emu_init(void) {
         /* Load corresponding factory stock amp model or user NAM capture & cabinet IR */
         if (initial_p.amp_model_idx < PA_STOCK_AMP_COUNT) {
             pa_stock_load_amp(initial_p.amp_model_idx, &g_nam_model, NULL);
+            pa_user_nam_dsp_forget();
             g_active_amp_engine = 0;
         } else {
             pa_user_nam_load_into_dsp(initial_p.amp_model_idx - PA_STOCK_AMP_COUNT, &g_nam_model, &g_wn_model);
@@ -1035,6 +1036,7 @@ EMU_EXPORT int emu_select_stock_amp(int amp_idx) {
     if (amp_idx < 0) return -1;
     if (amp_idx < (int)PA_STOCK_AMP_COUNT) {
         float dc_bias = 0.0f;
+        pa_user_nam_dsp_forget();
         if (pa_stock_load_amp((uint8_t)amp_idx, &g_nam_model, &dc_bias) != 0) return -2;
         g_active_amp_engine = 0;
         g_nam_node.active   = 1;

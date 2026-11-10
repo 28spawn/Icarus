@@ -39,6 +39,7 @@ void pa_fx_chain_set_slot_enabled_now(pa_fx_chain_t *c, pa_fx_slot_id_t s, int o
 void pa_fx_chain_set_slot_type(pa_fx_chain_t *c, pa_fx_slot_id_t s, uint8_t t) { (void)c; (void)s; (void)t; }
 int  pa_stock_load_amp(uint8_t idx, void *m, float *dc) { (void)idx; if (m) memset(m, 0, 4096); if (dc) *dc = 0.0f; return 0; }
 int  pa_user_nam_load_into_dsp(uint8_t i, void *g, void *w) { (void)i; (void)g; (void)w; return -1; }
+void pa_user_nam_dsp_forget(void) {}
 void pa_amp_set_model_profile(uint8_t idx) { (void)idx; }
 void pa_audio_request_mute(void) {}
 int  pa_audio_is_muted(void) { return 1; }

@@ -27,7 +27,7 @@ enum pa_syscmd {
     PA_CMD_READ_35        = 35, /* the read-shaped response (a download) */
     PA_CMD_PA_STATE       = 80, /* ours: the editor's state record (reply PA_REPLY_PA_STATE) */
     PA_CMD_PA_NAMES       = 81, /* ours: a page of names (user amps, cabinets beyond the stock 20) (reply PA_REPLY_PA_NAMES) */
-    PA_CMD_PA_USER        = 82, /* ours: [op, kind, index, name...] op 0 delete, 1 rename a stored capture (kind 0) or cabinet (kind 1) (reply PA_REPLY_PA_USER) */
+    PA_CMD_PA_USER        = 82, /* ours: [op, kind, index, name...] op 0 delete, 1 rename a stored capture (kind 0) or cabinet (kind 1), 3 set a capture's makeup (reply PA_REPLY_PA_USER) */
 };
 
 /* The reply types. The stock's reply builders take a type: 0x77F02

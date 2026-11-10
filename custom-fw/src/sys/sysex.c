@@ -398,6 +398,8 @@ static void pa_sysex_dispatch(uint8_t cmd, const uint8_t *payload, uint32_t len)
             for (; k + 3 < len && k < sizeof nm - 1u; k++) nm[k] = (char)payload[3 + k];
             nm[k] = '\0';
             rc = kind == 0u ? pa_user_nam_set_name(idx, nm) : (kind == 1u ? pa_user_cab_rename(idx, nm) : -1);
+        } else if (op == 3u && kind == 0u && len > 3) {
+            rc = pa_user_nam_set_makeup(idx, (int8_t)((int)(payload[3] & 0x7Fu) - 64));     /* the makeup measured by the editor: (dB x 4) + 64 */
         }
         if (rc >= 0 && (op == 0u || op == 2u)) pa_audio_core_user_store_changed();
         uint8_t r[4] = { op, kind, idx, (uint8_t)(rc >= 0 ? 0 : rc) };

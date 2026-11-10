@@ -77,7 +77,7 @@ typedef struct {
  *  126 free capture slots (of 16)   127 free cabinet slots (of 15)
  * PA_CMD_PA_NAMES [kind, start] (kind 0 = every amp type in type-knob order, stock then stored captures; 1 = every cabinet type) is answered with [kind, total, start, n, first_user] + n names of 16 bytes;
  * a deleted capture or cabinet is an EMPTY name (its type number stays, presets use it), first_user is the first type that can be deleted.
- * PA_CMD_PA_USER [op, kind, index, name...]: op 0 deletes the stored capture (kind 0) or cabinet (kind 1) at that index (index = type - first_user), op 1 renames it, op 2 clears ALL of that kind and wipes the area (index ignored); replied with [op, kind, index, result].
+ * PA_CMD_PA_USER [op, kind, index, name...]: op 0 deletes the stored capture (kind 0) or cabinet (kind 1) at that index (index = type - first_user), op 1 renames it, op 2 clears ALL of that kind and wipes the area (index ignored), op 3 [3, 0, index, makeup x4 + 64] sets a capture's output makeup (0.25 dB steps, -16..+15.75 dB); replied with [op, kind, index, result].
  * Uploads (cmd 25 / 34 / 48): the 4th byte of the cmd 25 payload is the target (PA_UPLOAD_NAM = 1: the slot byte is the capture index, 0xFF = the first free one; PA_UPLOAD_CAB = 2: raw Q18 taps, int32
  * little endian, 16..1024 of them: the slot byte is the cabinet slot 0..14 or 0xFF = the first free one, STORED in the flash; 0xFE = a LIVE cabinet in RAM only, loaded under the same fade as a model change
  * and gone at the next cabinet change or power-off) and the 5th is the slot. */

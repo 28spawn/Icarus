@@ -23,21 +23,35 @@ static int32_t out_single[K][2][PA_BLOCK_N], out_pipe[K][2][PA_BLOCK_N], in_blk[
 
 /* the stand-in for core 1: its own block buffers and its own dry scratch, run synchronously */
 static int32_t c1_L[PA_BLOCK_N], c1_R[PA_BLOCK_N], c1_dryL[PA_BLOCK_N], c1_dryR[PA_BLOCK_N];
-static void hook(pa_fx_chain_t *chain, int32_t *L, int32_t *R, int n, int to, int lo) {
+static int c1_ss;                                      /* the stereo state of the block "core 1" holds */
+static int hook(pa_fx_chain_t *chain, int32_t *L, int32_t *R, int n, int to, int lo) {
     for (int i = 0; i < n; i++) {                       /* swap: the caller gets the finished block, "core 1" gets the new one */
         int32_t t = c1_L[i]; c1_L[i] = L[i]; L[i] = t;
         if (R) { t = c1_R[i]; c1_R[i] = R[i]; R[i] = t; }
     }
     /* "core 1" runs the front on its buffer. In the device the swap above happens after core 1 finished the previous block, so the
      * buffer holds the previous block's front output; here the front of the NEW block runs after the swap, as on the device. */
-    pa_fx_chain_run_front(chain, c1_L, R ? c1_R : 0, n, lo, to, c1_dryL, c1_dryR);
+    const int ss = c1_ss;
+    c1_ss = pa_fx_chain_run_front(chain, c1_L, R ? c1_R : 0, n, lo, to, c1_dryL, c1_dryR);
+    return ss;
 }
 
 static void feed(int32_t *L, int32_t *R, int k) {
     for (int i = 0; i < PA_BLOCK_N; i++) { L[i] = in_blk[k][i]; R[i] = in_blk[k][i]; }
 }
 
-static int run_case(const char *label, uint32_t budget_us, int drive_on) {
+/* A stereo block for the slot in front of the amp: it leaves the two channels different (R = -L/2), as the synth does. The amp is mono, so it
+ * must get the L+R mix of this, on one core and on two. */
+static void wide_run(fx_node_t *nd, int32_t *b, int n) { (void)nd; (void)b; (void)n; }
+static void wide_run_stereo(fx_node_t *nd, int32_t *bl, int32_t *br, int n) { (void)nd; for (int i = 0; i < n; i++) br[i] = -(bl[i] / 2); }
+static fx_node_t s_wide = { .active = 1, .frame = 64, .tag = "wide", .run = wide_run, .run_stereo = wide_run_stereo };
+static void front_setup(pa_fx_chain_t *chain, int front) {
+    if (front == 1) pa_fx_chain_set_slot_enabled_now(chain, PA_SLOT_DYNAMICS, 1);
+    if (front >= 2) chain->slots[chain->slot_order[0]] = &s_wide;      /* slot_order[0] is in front of the amp */
+}
+
+/* front: 0 = nothing in front of the amp, 1 = the dynamics, 2 = a stereo block */
+static int run_case(const char *label, uint32_t budget_us, int drive_on, int amp_on) {
     int fails = 0;
     pa_fx_chain_set_core1_budget_us(budget_us);
     printf("--- %s ---\n", label);
@@ -50,20 +64,24 @@ static int run_case(const char *label, uint32_t budget_us, int drive_on) {
     {   /* single core */
         pa_fx_chain_t chain;
         pa_fx_chain_init(&chain, 0, fx_cab_ir_new());
-        if (drive_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_DYNAMICS, 1);
+        front_setup(&chain, drive_on);
+        if (amp_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_AMP, 1);
         for (int k = 0; k < K; k++) {
             feed(out_single[k][0], out_single[k][1], k);
+            if (drive_on == 3) s_wide.active = (uint8_t)((k / 5) & 1);     /* on and off every 5 blocks */
             pa_fx_chain_run_stereo(&chain, out_single[k][0], out_single[k][1], PA_BLOCK_N);
         }
     }
     {   /* pipelined (a fresh chain, a fresh cabinet: the convolver state is a singleton) */
         pa_fx_chain_t chain;
         pa_fx_chain_init(&chain, 0, fx_cab_ir_new());
-        if (drive_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_DYNAMICS, 1);
-        memset(c1_L, 0, sizeof c1_L); memset(c1_R, 0, sizeof c1_R);
+        front_setup(&chain, drive_on);
+        if (amp_on) pa_fx_chain_set_slot_enabled_now(&chain, PA_SLOT_AMP, 1);
+        memset(c1_L, 0, sizeof c1_L); memset(c1_R, 0, sizeof c1_R); c1_ss = 0;
         pa_fx_chain_set_post_handoff(hook);
         for (int k = 0; k < K; k++) {
             feed(out_pipe[k][0], out_pipe[k][1], k);
+            if (drive_on == 3) s_wide.active = (uint8_t)((k / 5) & 1);
             pa_fx_chain_run_stereo(&chain, out_pipe[k][0], out_pipe[k][1], PA_BLOCK_N);
         }
         pa_fx_chain_set_post_handoff(0);
@@ -88,9 +106,16 @@ static int run_case(const char *label, uint32_t budget_us, int drive_on) {
 
 int main(void) {
     int fails = 0;
-    fails += run_case("amp and everything in front on core 1 (budget 1300 us)", 1300u, 0);
-    fails += run_case("dynamics in front of the amp, run on core 0 (budget 1300 us)", 1300u, 1);
-    fails += run_case("the amp alone on core 1 (budget 1 us), dynamics on", 1u, 1);
+    fails += run_case("amp and everything in front on core 1 (budget 1300 us)", 1300u, 0, 0);
+    fails += run_case("dynamics in front of the amp, run on core 0 (budget 1300 us)", 1300u, 1, 0);
+    fails += run_case("the amp alone on core 1 (budget 1 us), dynamics on", 1u, 1, 0);
+    fails += run_case("a stereo block in front of the bypassed amp, run on core 0 (budget 1 us)", 1u, 2, 0);
+    fails += run_case("a stereo block in front of the amp, run on core 0 (budget 1 us)", 1u, 2, 1);
+    fails += run_case("a stereo block in front of the bypassed amp, run on core 1 (budget 1300 us)", 1300u, 2, 0);
+    fails += run_case("a stereo block in front of the amp, run on core 1 (budget 1300 us)", 1300u, 2, 1);
+    fails += run_case("a stereo block in front of the bypassed amp, switched on and off, on core 0 (budget 1 us)", 1u, 3, 0);
+    fails += run_case("a stereo block in front of the amp, switched on and off, on core 0 (budget 1 us)", 1u, 3, 1);
+    s_wide.active = 1;
     printf(fails ? "RESULT: FAILED\n" : "RESULT: ALL PASSED\n");
     return fails ? 1 : 0;
 }

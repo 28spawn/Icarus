@@ -148,11 +148,12 @@ void pa_fx_chain_run_stereo(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R
  * block to the hook, which runs the FRONT of the chain (input conditioning and every slot up to and including the AMP: the heavy
  * part) on core 1 and returns the PREVIOUS block's amp output in the same buffers (one block of latency). This core then runs the
  * slots after the amp and the tail. No hook = the plain single-core chain, bit for bit as before. `to` is the first slot_order
- * index that stays on this core; `stereo_split` is reserved (the amp is mono, so it is 0). */
-typedef void (*pa_fx_post_handoff_fn)(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int n, int to, int lo);
+ * index that stays on this core. The hook returns the stereo state of the block it gives back (what pa_fx_chain_run_front returned for
+ * it): 0 after the amp, a mono block, and 1 when the amp is bypassed behind a stereo block, so the two channels stay apart. */
+typedef int (*pa_fx_post_handoff_fn)(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int n, int to, int lo);
 void pa_fx_chain_set_post_handoff(pa_fx_post_handoff_fn fn);
-/* Input conditioning, then slot_order[0..to), with the caller's own dry-copy scratch (two cores never share it). */
-void pa_fx_chain_run_front(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int n, int lo, int to, int32_t *dry_L, int32_t *dry_R);
+/* Input conditioning, then slot_order[0..to), with the caller's own dry-copy scratch (two cores never share it). Returns the stereo state after the last slot. */
+int pa_fx_chain_run_front(pa_fx_chain_t *chain, int32_t *buf_L, int32_t *buf_R, int n, int lo, int to, int32_t *dry_L, int32_t *dry_R);
 /* How much of the front core 1 may take, in microseconds of its block (default 1300). The slots before the amp that do not fit run on
  * core 0 before the hand-over (a drive pedal in front of the amp would otherwise push core 1 past its block). 1 = the amp alone. */
 void pa_fx_chain_set_core1_budget_us(uint32_t us);

@@ -1022,6 +1022,90 @@ function namJson(f, filename) {
   weights.forEach((w, i) => dv.setFloat32(20 + i * 4, w, true));
   return { bytes: out, name, how: "ToneHunt .nam converted: A2 Lite WaveNet, " + weights.length + " weights" + (cab ? ", cabinet baked in" : "") + (lvl !== null ? ", input trim " + trim : "") };
 }
+// ---- NAM level measure ----
+// The loudness of a capture on THIS unit: the WaveNet blob is run, in the browser, through a port of the firmware's float reference engine (src/nam/pa_wavenet.c pa_wavenet_step_sample, the
+// input conditioning of the Clean voicing the upload gets, the 5 Hz output DC blocker) on a fixed reference DI (plucked strings at -22 dBFS RMS, the level of the DIs the stock amps were trimmed
+// with), and the output makeup is the gain that puts it at the stock amps' -18 dBFS RMS. The .nam "loudness" figure is measured by the trainer on ITS input, not on a guitar at this unit's level,
+// and a capture without one used to get 0 dB: some came out 10 dB and more over the stock models.
+const NAM_TARGET_DB = -18.0, NAM_REF_DI_DB = -22.0;
+const NAM_SPECS = [[6, 1], [6, 3], [6, 7], [6, 17], [6, 41], [6, 101], [6, 239], [6, 1], [6, 3], [6, 7], [6, 17], [6, 41], [6, 101], [6, 239], [15, 1], [15, 13], [6, 1], [6, 3], [6, 7], [6, 17], [6, 41], [6, 101], [6, 239]];
+function namRefDI() {                                                   // deterministic: the same signal for every capture, every time
+  const sr = 44100, n = sr * 6, x = new Float64Array(n);
+  let seed = 12345; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2147483648 - 1; };
+  const pluck = (t0, f, amp, dec) => {                                  // Karplus-Strong string, soft pick
+    const L = Math.max(2, Math.round(sr / f)), b = new Float64Array(L); let pv = 0;
+    for (let i = 0; i < L; i++) { pv = 0.5 * rnd() + 0.5 * pv; b[i] = pv; }
+    for (let i = 0, p = 0; t0 + i < n && i < sr * 2.5; i++) { const y = b[p], q = (p + 1) % L; b[p] = dec * 0.5 * (y + b[q]); p = q; x[t0 + i] += amp * y; }
+  };
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const chords = [[40, 47, 52, 55, 59, 64], [45, 52, 57, 60, 64], [43, 47, 50, 55, 59, 67], [50, 57, 62, 66]];
+  chords.forEach((c, k) => c.forEach((m, j) => pluck(Math.round(sr * (k * 0.75 + j * 0.012)), hz(m), 1.0, 0.9985)));
+  const lick = [64, 67, 69, 71, 69, 67, 64, 62, 64, 57, 59, 60, 59, 57, 55, 52];
+  lick.forEach((m, k) => pluck(Math.round(sr * (3.0 + k * 0.18)), hz(m), 1.2, 0.9988));
+  let e = 0; for (const v of x) e += v * v;
+  const g = Math.pow(10, NAM_REF_DI_DB / 20) / Math.sqrt(e / n);
+  for (let i = 0; i < n; i++) x[i] *= g;
+  return x;
+}
+// the firmware's per-sample float engine, for a 3-channel A2 Lite blob ('WAVE', count, head scale, flags, input trim, weights)
+function namRender(blob, x) {
+  const dv = new DataView(blob.buffer, blob.byteOffset, blob.length), count = dv.getUint32(4, true);
+  const off = blob.length >= 20 + count * 4 ? 20 : (blob.length >= 16 + count * 4 ? 16 : 12);
+  const trim0 = off >= 20 ? dv.getFloat32(16, true) : 1, trim = trim0 > 0.001 && Number.isFinite(trim0) ? trim0 : 1;
+  const W = new Float64Array(count); for (let i = 0; i < count; i++) W[i] = dv.getFloat32(off + i * 4, true);
+  const C = 3, head = count === 1871 ? W[count - 1] : dv.getFloat32(8, true), HT = 16;
+  const rings = NAM_SPECS.map(([k, d]) => ({ k, d, len: (k - 1) * d + 1, buf: new Float64Array(((k - 1) * d + 1) * C), pos: 0 }));
+  const hring = new Float64Array(HT * C); let hpos = 0;
+  // input: 15 Hz DC blocker, Clean voicing 20 Hz HPF and 18.5 kHz LPF (pa_wavenet.c k_hpf_profiles / k_lpf_profiles [0])
+  const hp = [0.99798712, -1.99597423, 0.99798712, -1.99597018, 0.99597828], lp = [0.69819890, 1.39639781, 0.69819890, 1.30313964, 0.48965598];
+  let dx = 0, dy = 0, h1 = 0, h2 = 0, hy1 = 0, hy2 = 0, l1 = 0, l2 = 0, ly1 = 0, ly2 = 0, ox = 0, oy = 0;
+  const y = new Float64Array(x.length), cur = new Float64Array(C), act = new Float64Array(C), hacc = new Float64Array(C);
+  for (let t = 0; t < x.length; t++) {
+    const xr = x[t] * trim;                                             // the input trim (the engine applies it before the conditioning on the unit; the filters are linear)
+    let v = xr - dx + 0.9979 * dy; dx = xr; dy = v;
+    let a = hp[0] * v + hp[1] * h1 + hp[2] * h2 - hp[3] * hy1 - hp[4] * hy2; h2 = h1; h1 = v; hy2 = hy1; hy1 = a;
+    let b = lp[0] * a + lp[1] * l1 + lp[2] * l2 - lp[3] * ly1 - lp[4] * ly2; l2 = l1; l1 = a; ly2 = ly1; ly1 = b;
+    let xin = Math.max(-4, Math.min(4, b));
+    for (let c = 0; c < C; c++) { cur[c] = W[c] * xin; hacc[c] = 0; }
+    let w = C;
+    for (const r of rings) {
+      r.pos = (r.pos + 1) % r.len; const base = r.pos * C;
+      for (let c = 0; c < C; c++) r.buf[base + c] = cur[c];
+      const cw = w, cb = cw + C * C * r.k, mw = cb + C, ow = mw + C, ob = ow + C * C; w = ob + C;
+      for (let o = 0; o < C; o++) {
+        let acc = W[cb + o];
+        for (let ki = 0; ki < r.k; ki++) {
+          let col = r.pos - (r.k - 1 - ki) * r.d; while (col < 0) col += r.len;
+          const hb = col * C;
+          for (let j = 0; j < C; j++) acc += W[cw + (o * C + j) * r.k + ki] * r.buf[hb + j];
+        }
+        const z = acc + W[mw + o] * xin, q = z >= 0 ? z : 0.01 * z;
+        act[o] = q; hacc[o] += q;
+      }
+      for (let o = 0; o < C; o++) { let s = W[ob + o]; for (let j = 0; j < C; j++) s += W[ow + o * C + j] * act[j]; cur[o] += s; }
+    }
+    hpos = (hpos + 1) % HT; for (let c = 0; c < C; c++) hring[hpos * C + c] = hacc[c];
+    let out = W[w + C * HT];
+    for (let j = 0; j < C; j++) for (let ki = 0; ki < HT; ki++) { let col = hpos - (HT - 1 - ki); if (col < 0) col += HT; out += W[w + j * HT + ki] * hring[col * C + j]; }
+    let yy = Math.max(-2, Math.min(2, out * head));
+    if (!Number.isFinite(yy)) yy = 0;
+    const yd = yy - ox + 0.9993 * oy; ox = yy; oy = yd;                // the output DC blocker
+    y[t] = yd;
+  }
+  return y;
+}
+// -> { rmsDb, makeupDb, x4 } or null (not a WaveNet blob)
+function namMeasure(blob) {
+  if (!blob || blob.length < 24 || String.fromCharCode(blob[0], blob[1], blob[2], blob[3]) !== "WAVE") return null;
+  const n = new DataView(blob.buffer, blob.byteOffset, blob.length).getUint32(4, true);
+  if (n !== 1870 && n !== 1871) return null;
+  const y = namRender(blob, namRefDI()), skip = 4410;                  // the first 100 ms: the filters and the rings settling
+  let e = 0; for (let i = skip; i < y.length; i++) e += y[i] * y[i];
+  const rmsDb = 10 * Math.log10(e / (y.length - skip) + 1e-20);
+  const makeupDb = Math.max(-16, Math.min(15.75, NAM_TARGET_DB - rmsDb));
+  return { rmsDb, makeupDb, x4: Math.round(makeupDb * 4) };
+}
+// ---- end NAM level measure ----
 function checkCab(f) {
   if (f.length > 12 && String.fromCharCode(f[0], f[1], f[2], f[3]) === "RIFF") { const r = wavToCab(f); return r.error ? r : { bytes: r.bytes, taps: r.taps, peak: r.peak, how: r.how }; }
   const n = f.length;
@@ -2178,7 +2262,7 @@ const KINDS = [
   { n: "capture", max: 10, table: "namTable", count: "namCount", first: () => names.firstAmp, list: () => names.amp, free: () => state.namFree, have: () => state.namCount, cap: 23 },
   { n: "cabinet", max: 15, table: "cabTable", count: "cabCount", first: () => names.firstCab, list: () => names.cab, free: () => state.cabFree, have: () => state.cabCount, cap: 15 }
 ];
-let buildCode = "", replaceTarget = null, namBytes = null, cabBytes = null, namFileName = "", cabFileName = "";
+let buildCode = "", replaceTarget = null, namBytes = null, cabBytes = null, namFileName = "", cabFileName = "", namLevel = null;
 
 function storedRows(kind) {
   const K = KINDS[kind], l = K.list(), first = K.first(), rows = [];
@@ -2253,10 +2337,22 @@ const stem = (n, cap) => n.replace(/\.[^.]*$/, "").replace(/[^\x20-\x7E]/g, "_")
 $("namFile").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
   const r = stripNam(new Uint8Array(await f.arrayBuffer()), f.name);
-  namBytes = r.bytes || null; namFileName = r.name || f.name;
-  $("namInfo").innerHTML = r.error ? '<span class="warn">' + r.error + "</span>" : "<b>" + f.name + "</b>: " + r.how + ", " + r.bytes.length + " bytes";
+  namBytes = r.bytes || null; namFileName = r.name || f.name; namLevel = null;
+  const info = r.error ? '<span class="warn">' + r.error + "</span>" : "<b>" + f.name + "</b>: " + r.how + ", " + r.bytes.length + " bytes";
+  $("namInfo").innerHTML = info + (r.bytes ? " &mdash; measuring its level&hellip;" : "");
   renderStoreSafe();
+  if (r.bytes) { const bytes = r.bytes; $("namSend").disabled = true; await sleep(30); namLevel = namMeasureSafe(bytes); if (namBytes === bytes) { $("namInfo").innerHTML = info + namLevelText(namLevel); renderStoreSafe(); } }
 };
+function namMeasureSafe(b) { try { return namMeasure(b); } catch (e) { log("level measure failed: " + e.message); return null; } }
+const namLevelText = (m) => !m ? "" : "; on the reference DI it plays at " + m.rmsDb.toFixed(1) + " dBFS RMS, so the unit gets a makeup of " + (m.makeupDb >= 0 ? "+" : "") + m.makeupDb.toFixed(1) + " dB (the stock amps sit at " + NAM_TARGET_DB + " dBFS)" + (m.makeupDb >= 15.7 || m.makeupDb <= -15.9 ? ' <span class="warn">(at the limit: this capture is unusually quiet or loud)</span>' : "");
+// the measured makeup for a stored capture (PA_CMD_PA_USER op 3: [3, 0, index, dB x 4 + 64]); a unit on older firmware does not know op 3 and answers with an error, the capture then plays at 0 dB
+async function sendNamLevel(idx, m) {
+  if (!m) return;
+  try {
+    const d = await request(82, [3, 0, idx, Math.max(0, Math.min(127, m.x4 + 64))], 0x62);
+    log(d[3] === 0 ? "level set: makeup " + (m.makeupDb >= 0 ? "+" : "") + m.makeupDb.toFixed(1) + " dB" : "the unit did not take the level (firmware older than the level measure?)");
+  } catch (e) { log("level not sent: " + e.message); }
+}
 $("cabFile").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
   const r = checkCab(new Uint8Array(await f.arrayBuffer()));
@@ -2271,10 +2367,10 @@ $("replaceFile").onchange = async (e) => {
   const raw = new Uint8Array(await f.arrayBuffer()), r = t.kind === 0 ? stripNam(raw, f.name) : checkCab(raw);
   if (r.error) { log("replace: " + r.error); return; }
   if (!confirm("Replace the " + KINDS[t.kind].n + ' "' + t.name + '" with ' + f.name + "?")) return;
-  await upload(t.kind, r.bytes, t.idx, null);
+  await upload(t.kind, r.bytes, t.idx, null, t.kind === 0 ? namMeasureSafe(r.bytes) : null);
 };
 
-async function upload(kind, bytes, slot, name) {
+async function upload(kind, bytes, slot, name, level) {
   if (!link) { log("not connected"); return; }
   const K = KINDS[kind], live = slot === 0xFE, had = storedRows(kind).length;
   busy = true; const bar = $("up"); bar.hidden = false;
@@ -2296,12 +2392,13 @@ async function upload(kind, bytes, slot, name) {
     const fresh = rows.find((r) => !was.has(r.idx + ":" + r.name));
     if (!fresh) { log("the unit did not store it (" + (state && K.free() === 0 ? "no free slot" : "check the file") + ")"); return; }
     if (name && stem(name, K.cap)) { await userOp(1, kind, fresh.idx, stem(name, K.cap)); await readNames(kind); await refresh(); }
+    if (kind === 0) await sendNamLevel(fresh.idx, level);
     const f2 = storedRows(kind).find((r) => r.idx === fresh.idx);
     log(K.n + " stored in slot " + (fresh.idx + 1) + ": " + (f2 ? f2.name : fresh.name) + " (" + K.have() + " of " + K.max + ")");
     await sendShort(nrpn(kind === 0 ? 1 : 5, 0x40, fresh.type + 0x20, true)); log("selected it on the unit");
-  } else log(K.n + " in slot " + (slot + 1) + " replaced");
+  } else { log(K.n + " in slot " + (slot + 1) + " replaced"); if (kind === 0) await sendNamLevel(slot, level); }
 }
-$("namSend").onclick = () => upload(0, namBytes, 0xFF, namFileName);
+$("namSend").onclick = () => upload(0, namBytes, 0xFF, namFileName, namLevel);
 $("cabSend").onclick = () => upload(1, cabBytes, 0xFF, cabFileName);
 $("cabLive").onclick = () => upload(1, cabBytes, 0xFE, null);
 

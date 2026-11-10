@@ -2,6 +2,7 @@
  * Run by test/test_embedded_user.py, which builds a fixture .inc with tools/pa_import.py and passes it in. */
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "pa_user_nam.h"
 #include "pa_stock_assets.h"
 #include "pa_sysex.h"
@@ -91,6 +92,22 @@ int main(void) {
         static pa_nam_model_t gru; static pa_wavenet_model_t wn;
         const int rc = pa_user_nam_load_into_dsp((uint8_t)i, &gru, &wn);
         CHECK(rc == 0, "capture %d loads into the DSP (rc %d)", i, rc);
+    }
+    {   /* the measured makeup (PA_CMD_PA_USER op 3) reaches the engine only while that capture is the one loaded */
+        static pa_nam_model_t gru; static pa_wavenet_model_t wn;
+        pa_user_nam_slot_t info;
+        CHECK(pa_user_nam_load_into_dsp(0, &gru, &wn) == 0 && pa_user_nam_get_info(0, &info) == 0, "capture 0 is loaded again");
+        const int gru_cap = (info.type == 0u);
+        const int8_t x4 = (int8_t)(info.makeup_db_x4 == 24 ? 20 : 24);                  /* +6 dB (or +5 dB): a value it does not have yet */
+        CHECK(pa_user_nam_set_makeup(0, x4) == 0, "a new makeup is stored");
+        const float want = powf(10.0f, (float)x4 / 80.0f);
+        const float got = gru_cap ? (float)gru.scale_q21 / (float)(1 << PA_NAM_Q_SHIFT) : wn.makeup_gain;
+        CHECK(fabsf(got - want) < 1e-3f * want, "and applied at once to the loaded capture (%.4f, expect %.4f)", got, want);
+        pa_user_nam_dsp_forget();                                                      /* what every stock-amp load does */
+        const int32_t sq = gru.scale_q21; const float sm = wn.makeup_gain;
+        CHECK(pa_user_nam_set_makeup(0, (int8_t)(x4 - 8)) == 0, "a makeup change after a stock amp took over is stored");
+        CHECK(gru.scale_q21 == sq && wn.makeup_gain == sm, "and leaves the engine's model alone (it is not that capture any more)");
+        CHECK(pa_user_nam_get_info(0, &info) == 0 && info.makeup_db_x4 == (int8_t)(x4 - 8), "the registry holds the new makeup (%d)", info.makeup_db_x4);
     }
     CHECK(pa_cab_total_count() == PA_STOCK_CAB_COUNT + (int)(pa_cab_total_count() - PA_STOCK_CAB_COUNT), "cabinet count consistent");
     for (uint8_t c = PA_STOCK_CAB_COUNT; c < pa_cab_total_count(); c++) {

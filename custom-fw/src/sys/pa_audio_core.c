@@ -952,6 +952,7 @@ static void pa_audio_core_apply_model(pa_fx_chain_t *chain, pa_ui_ctx_t *ui,
         if (type < PA_STOCK_AMP_COUNT) {
             if (chain->slots[PA_SLOT_AMP] && chain->slots[PA_SLOT_AMP]->state)
                 pa_stock_load_amp(type, (pa_nam_model_t *)chain->slots[PA_SLOT_AMP]->state, NULL);
+            pa_user_nam_dsp_forget();                                     /* the engine no longer runs a stored capture */
             g_active_amp_engine = 0;
             g_wn_model.active = 0;
         } else {
@@ -1380,7 +1381,7 @@ PA_HOT void pa_audio_core_process_block(pa_fx_chain_t *chain, pa_ui_ctx_t *ui,
     /* 2. Run the full 8-slot chain in stereo (respects the custom slot order,
      *    true stereo MOD/DLY/REV) */
     PA_ISR_CP(0x23);
-    PT_VAR(pt0); PT_VAR(pt1); PT_VAR(pt2); PT_VAR(pt3); PT_VAR(pt4); PT_VAR(pt5);
+    PT_VAR(pt0); uint32_t pt1 = pt0, pt2 = pt0, pt3 = pt0, pt4 = pt0, pt5 = pt0;      /* one read of the timer, not six (each one is set again where its stage ends) */
     /* The tuner is open and the output is not muted: the stock plays the dry guitar at the tuner's bypass volume, no effects. The whole chain (up to 1.2 ms of the
      * 1.45 ms block with the heavy presets) would run for nothing and leave the screen almost no CPU - the tuner needle was choppy exactly then. */
     /* The USB audio mode: in INTERFACE modes the recording is the dry guitar as it came in, taken before the chain touches the block. */
@@ -1464,10 +1465,7 @@ PA_HOT void pa_audio_core_process_block(pa_fx_chain_t *chain, pa_ui_ctx_t *ui,
 
     /* 4. The soft-knee guard: a safety net now (the sum limiter keeps the drums under its
      *    knee); USB playback still relies on it. */
-    for (int i = 0; i < n; i++) {
-        buf_L[i] = pa_soft_ceiling_q21(buf_L[i]);
-        if (buf_R && buf_R != buf_L) buf_R[i] = pa_soft_ceiling_q21(buf_R[i]);
-    }
+    /*    (It runs in the same loop as the DC blocker below, sample by sample in the same order: one pass over the block instead of two, the same numbers.) */
 
     /* 5. The output DC blocker - the LAST thing before the DAC.
      *
@@ -1490,20 +1488,23 @@ PA_HOT void pa_audio_core_process_block(pa_fx_chain_t *chain, pa_ui_ctx_t *ui,
      * note a guitar or bass can play, so it costs nothing audible. */
     {
         const int32_t dc_r = 2086663;
+        const int stereo = (buf_R && buf_R != buf_L);
+        int32_t x1 = s_out_dc_x1, y1 = s_out_dc_y1, x1r = s_out_dc_x1r, y1r = s_out_dc_y1r;      /* the filter state in registers for the block */
         for (int i = 0; i < n; i++) {
-            int32_t x = buf_L[i];
-            int32_t y = x - s_out_dc_x1 + q21_mul(dc_r, s_out_dc_y1);
-            s_out_dc_x1 = x;
-            s_out_dc_y1 = y;
+            const int32_t x = pa_soft_ceiling_q21(buf_L[i]);              /* step 4, the soft-knee guard */
+            const int32_t y = x - x1 + q21_mul(dc_r, y1);
+            x1 = x;
+            y1 = y;
             buf_L[i] = y;
-            if (buf_R && buf_R != buf_L) {
-                int32_t xr = buf_R[i];
-                int32_t yr = xr - s_out_dc_x1r + q21_mul(dc_r, s_out_dc_y1r);
-                s_out_dc_x1r = xr;
-                s_out_dc_y1r = yr;
+            if (stereo) {
+                const int32_t xr = pa_soft_ceiling_q21(buf_R[i]);
+                const int32_t yr = xr - x1r + q21_mul(dc_r, y1r);
+                x1r = xr;
+                y1r = yr;
                 buf_R[i] = yr;
             }
         }
+        s_out_dc_x1 = x1; s_out_dc_y1 = y1; s_out_dc_x1r = x1r; s_out_dc_y1r = y1r;
     }
 
     pa_audio_core_route_block(buf_L, buf_R, n);       /* routing and balance: the very last thing before the DAC */
