@@ -19,6 +19,7 @@
 /* ---- the stubs sysex.c needs --------------------------------------------- */
 uint32_t pa_crc32(const void *data, uint32_t len) { (void)data; (void)len; return 0; }
 int      pa_preset_save(int slot, const void *p) { (void)slot; (void)p; return 0; }
+int      pa_preset_load(int idx, void *p) { (void)idx; (void)p; return -1; }
 int      pa_settings_save(const void *s) { (void)s; return 0; }
 int      pa_settings_load(void *s) { (void)s; return -1; }
 int      pa_spi_nor_erase_sector(uint32_t a) { (void)a; return 0; }
@@ -35,6 +36,7 @@ int      pa_user_nam_is_active(uint8_t i) { (void)i; return 0; }
 int      pa_user_nam_delete(uint8_t i) { (void)i; return -1; }
 int      pa_user_nam_set_name(uint8_t i, const char *n) { (void)i; (void)n; return -1; }
 int      pa_user_nam_set_makeup(uint8_t i, int8_t x4) { (void)i; (void)x4; return -1; }
+const char *pa_user_nam_get_name(uint8_t i) { (void)i; return ""; }
 int      pa_user_cab_add(const char *n, int slot, const int32_t *t, uint32_t c) { (void)n; (void)slot; (void)t; (void)c; return -5; }
 int      pa_user_cab_delete(uint8_t i) { (void)i; return -1; }
 int      pa_user_nam_clear(void) { return -1; }
@@ -66,7 +68,7 @@ static int check_reply(const uint8_t *raw, uint32_t n, uint8_t *type, uint32_t *
                        const uint8_t **data) {
     if (n < 12u || raw[0] != 0xF0u || raw[n - 1u] != 0xF7u) return 0;
     /* the inner frame is packed 8-to-7-bit */
-    uint8_t inner[512];
+    static uint8_t inner[512];   /* static: *data points into it after the return */
     uint32_t bits = 0, nbits = 0, k = 0;
     for (uint32_t i = 1; i + 1u < n; i++) {
         bits |= (uint32_t)(raw[i] & 0x7Fu) << nbits;

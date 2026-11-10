@@ -119,5 +119,60 @@ check(state()[116] == 0, "a preset change drops it")
 ask(25, struct.pack("<I", 10)[:3] + bytes([2, 0])); ask(34, bytes(10)); ask(48, b"")
 run(600)
 check(state()[116] == 0, "a 10-byte cabinet is refused")
+print()
+print("=== the preset backup (cmd 83) and restore (upload target 0) ===")
+recs = []
+for i in range(80):
+    r = ask(83, bytes([i]))
+    recs.append(r)
+check(all(r is not None and r[0] == 0x63 and r[2] and len(r[1]) == 2 + 164 and r[1][0] == i and r[1][1] == 0 for i, r in enumerate(recs)), "all 80 presets are read, 164 bytes each")
+check(all(struct.unpack_from("<I", r[1], 2)[0] == 0x32504D50 for r in recs), "every record carries the preset magic")
+crc = lambda b: __import__("zlib").crc32(b) & 0xFFFFFFFF
+check(all(struct.unpack_from("<I", r[1], 2 + 160)[0] == crc(r[1][2:2 + 160]) for r in recs), "and a valid CRC")
+r = ask(83, bytes([80]))
+check(r is not None and r[1][1] == 1 and not any(r[1][2:]), "index 80 is refused (status 1, no bytes)")
+src = bytearray(recs[3][1][2:])
+name = b"BACKUP TEST"
+src[8:32] = name + bytes(24 - len(name))
+struct.pack_into("<I", src, 160, crc(bytes(src[:160])))
+ask(25, struct.pack("<I", len(src))[:3] + bytes([0, 61]))                  # target 0 (preset), slot 61 = P62
+ask(34, bytes(src))
+ask(48, b"")
+run(50)
+back = ask(83, bytes([61]))
+check(back is not None and bytes(back[1][2 + 8:2 + 8 + len(name)]) == name, "a record uploaded to P62 reads back with its name")
+check(back is not None and bytes(back[1][2 + 32:2 + 160]) == bytes(src[32:160]), "and every setting of it (the bytes after the name)")
+bad = bytearray(src); bad[8] = ord("X")                                     # the CRC no longer matches
+ask(25, struct.pack("<I", len(bad))[:3] + bytes([0, 62])); ask(34, bytes(bad)); ask(48, b"")
+run(50)
+r = ask(83, bytes([62]))
+check(r is not None and bytes(r[1][2:]) == bytes(recs[62][1][2:]), "a record with a bad CRC is refused (P63 unchanged)")
+print()
+print("=== a capture's name: upload, rename, replace in place ===")
+def amp_names():
+    out, start, total, first = [], 0, 1, 20
+    while start < total:
+        r = ask(81, bytes([0, start])); total, n, first = r[1][1], r[1][3], r[1][4]
+        out += [r[1][5 + 16 * i:21 + 16 * i].split(b"\0")[0].decode("latin1") for i in range(n)]
+        if not n:
+            break
+        start += n
+    return out[first:]
+def nam_upload(blob, slot):
+    ask(25, struct.pack("<I", len(blob))[:3] + bytes([1, slot]))
+    for i in range(0, len(blob), 200):
+        ask(34, blob[i:i + 200])
+    ask(48, b""); run(60)
+wave = lambda k: b"WAVE" + struct.pack("<I", 1) + struct.pack("<f", 1.0) + bytes((j * 3 + k) & 0xFF for j in range(7504 - 12))
+before = amp_names()
+nam_upload(wave(1), 0xFF)
+after = amp_names()
+check(len(after) == len(before) + 1, f"an upload adds a capture ({after[-1]!r})")
+idx = len(after) - 1
+r = ask(82, bytes([1, 0, idx]) + b"JCM800 v1.5 crunch.nam")
+check(r is not None and r[1][3] == 0 and amp_names()[idx] == "JCM800 v1.5 cru", f"the rename keeps a dot inside the name and drops only the extension ({amp_names()[idx]!r})")
+nam_upload(wave(2), idx)
+now = amp_names()
+check(len(now) == len(after) and now[idx] == "JCM800 v1.5 cru", f"an upload to that slot replaces it in place, under its name ({len(now)} captures, {now[idx]!r})")
 print("\n" + ("THE EDITOR PROTOCOL WORKS" if fails == 0 else f"{fails} FAILURE(S)"))
 sys.exit(0 if fails == 0 else 1)

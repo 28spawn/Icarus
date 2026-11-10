@@ -54,8 +54,19 @@ static void clean_nam_name(const char *in, char *out, int max_len) {
     slash = strrchr(p, '\\');
     if (slash) p = slash + 1;
 
+    /* only a real file extension is cut ("JCM800 v1.5 crunch" stays whole; it used to end at the first dot: "JCM800 v1") */
+    const char *end = p + strlen(p);
+    const char *dot = strrchr(p, '.');
+    if (dot) {
+        static const char *const k_ext[] = { "nam", "namb", "bin", "wave", "am3", "am4", "wav", "json" };
+        for (unsigned e = 0; e < sizeof k_ext / sizeof k_ext[0]; e++) {
+            const char *a = dot + 1, *b = k_ext[e];
+            while (*a && *b && (char)(*a | 0x20) == *b) { a++; b++; }
+            if (!*a && !*b) { end = dot; break; }
+        }
+    }
     int di = 0;
-    while (*p && *p != '.' && di < (max_len - 1)) {
+    while (p < end && di < (max_len - 1)) {
         if (*p >= 32 && *p <= 126) {
             out[di++] = *p;
         }
