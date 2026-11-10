@@ -28,6 +28,7 @@ enum pa_syscmd {
     PA_CMD_PA_STATE       = 80, /* ours: the editor's state record (reply PA_REPLY_PA_STATE) */
     PA_CMD_PA_NAMES       = 81, /* ours: a page of names (user amps, cabinets beyond the stock 20) (reply PA_REPLY_PA_NAMES) */
     PA_CMD_PA_USER        = 82, /* ours: [op, kind, index, name...] op 0 delete, 1 rename a stored capture (kind 0) or cabinet (kind 1), 3 set a capture's makeup (reply PA_REPLY_PA_USER) */
+    PA_CMD_PA_PRESET      = 83, /* ours: [index 0..79] -> ONE stored preset record, for the editor's backup (reply PA_REPLY_PA_PRESET); the restore is the preset upload (cmd 25, target 0) */
 };
 
 /* The reply types. The stock's reply builders take a type: 0x77F02
@@ -42,6 +43,7 @@ enum pa_syscmd {
 #define PA_REPLY_PA_STATE     0x60u  /* the editor state record: PA_STATE_REC_SIZE bytes (include/pa_sysex.h documents the layout) */
 #define PA_REPLY_PA_NAMES     0x61u  /* [kind, total, start, n, first_user] + n names of 16 bytes (an empty name = a deleted slot) */
 #define PA_REPLY_PA_USER      0x62u  /* [op, kind, index, result] result 0 = done, else a negative error as an unsigned byte */
+#define PA_REPLY_PA_PRESET    0x63u  /* [index, status, pa_preset_t bytes]: status 0 = the record is valid (an EMPTY slot too), 1 = no such preset or unreadable (the bytes are then zero) */
 
 /* The upload session, the way the standard SysEx protocol sends it:
  *   cmd 25  the payload is the declared length as a u24le, and nothing else

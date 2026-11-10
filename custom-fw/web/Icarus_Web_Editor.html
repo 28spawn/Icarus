@@ -845,6 +845,18 @@ canvas.scope-canvas {
   <progress id="up" max="100" value="0" hidden></progress>
 </section>
 
+<!-- TAB: PRESETS -->
+<section id="t-presets" hidden>
+  <h2>Save all presets</h2>
+  <p class="note">Reads the 80 presets stored on the unit (P01 to P80) and saves them in one <b>.json</b> file on this computer. Nothing on the unit changes. Each preset is kept whole: name, chain order, slot types and knobs, amp and cabinet, volume and the Icarus synth sound. Stored captures and cabinets are not in the file, only the numbers the presets use, so restore a preset file on a unit that holds the same captures and cabinets.</p>
+  <p class="pre"><button id="prBackup" class="pri" disabled>Save all presets to a .json file</button></p>
+  <h2>Restore all presets</h2>
+  <p class="note">Writes the presets in an Icarus preset file back to the unit, one by one, and reads each one back to check it. A slot that is EMPTY in the file is left as it is on the unit. <b>This overwrites the presets on the unit</b> and any unsaved edit there: save a backup first. Over USB it takes about a minute; Bluetooth works too, slower.</p>
+  <div class="drop"><input type="file" id="prFile" accept=".json"><div class="kv" id="prInfo">no file</div></div>
+  <p class="pre"><button id="prRestore" class="pri" disabled>Restore these presets to the unit</button></p>
+  <progress id="prBar" max="100" value="0" hidden></progress>
+</section>
+
 <!-- TAB 6: FIRMWARE -->
 <section id="t-fw" hidden>
   <h2>Firmware update</h2>
@@ -1170,6 +1182,55 @@ function uploadFrames(bytes, target, slot, chunk) {
   fr.push(buildFrame(48, []));
   return fr;
 }
+// ---- presets: save all and restore all (Presets tab) ----
+// The record is the unit's own pa_preset_t (164 bytes, include/pa_preset.h). It is read with PA_CMD_PA_PRESET (83, reply 0x63) and written with the preset upload (cmd 25/34/48,
+// target 0, the slot byte is the preset index); the firmware refuses a record whose magic or CRC is wrong, and a saved slot is never EMPTY, so EMPTY slots are not written.
+const PRESET_MAGIC = 0x32504D50, PRESET_SIZE = 164, PRESET_COUNT = 80, PRESET_FORMAT = "icarus-presets", PRESET_FLAG_EMPTY = 1;
+const PRESET_SLOTS = ["DYN", "SYNTH", "AMP", "CAB", "EQ", "MOD", "DLY", "REV"];
+function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) { c ^= b[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); } return (~c) >>> 0; }
+function recordOk(r) { if (!r || r.length !== PRESET_SIZE) return false; const v = new DataView(r.buffer, r.byteOffset, r.length); return v.getUint32(0, true) === PRESET_MAGIC && v.getUint32(160, true) === crc32(r.subarray(0, 160)); }
+// a record -> the JSON object of one preset (slot is 1-based, as the unit shows it)
+function recordToPreset(slot, r) {
+  const v = new DataView(r.buffer, r.byteOffset, r.length), q = []; for (let i = 0; i < 48; i++) q.push(v.getUint16(64 + 2 * i, true));
+  let end = 8; while (end < 32 && r[end]) end++;
+  const rows = (a) => [0, 1, 2, 3, 4, 5, 6, 7].map((i) => a.slice(i * 6, i * 6 + 6));
+  return { slot: slot + 1, name: String.fromCharCode(...r.subarray(8, end)), empty: !!(r[51] & PRESET_FLAG_EMPTY), seq: v.getUint32(4, true), bpm: v.getUint16(32, true), genre: r[34],
+    custom_cab_idx: r[35], custom_cab_blend: r[36], input_trim_db: v.getInt8(37), gate_threshold_pct: r[38], slot_enable_mask: r[39], slot_order: Array.from(r.subarray(40, 48)),
+    amp_model: r[48], cab_model: r[49], preset_vol: r[50], flags: r[51], slot_type: Array.from(r.subarray(52, 60)), stomp_map: Array.from(r.subarray(60, 64)),
+    params: rows(q), params_pct: rows(q.map((x) => Math.round(x * 100 / 65535))) };
+}
+// the JSON object of one preset -> its record (throws when a field is missing or the wrong size)
+function presetToRecord(o) {
+  const q = [].concat(...(o.params || [])).map((x) => x & 0xFFFF);
+  if (q.length !== 48 || !o.slot_order || o.slot_order.length !== 8 || !o.slot_type || o.slot_type.length !== 8 || !o.stomp_map || o.stomp_map.length !== 4)
+    throw new Error("preset " + o.slot + ": slot_order and slot_type need 8 entries, stomp_map 4, params 8 rows of 6");
+  const r = new Uint8Array(PRESET_SIZE), v = new DataView(r.buffer);
+  const flags = ((o.flags | 0) & ~PRESET_FLAG_EMPTY) | (o.empty ? PRESET_FLAG_EMPTY : 0), nm = String(o.name || "").replace(/[^\x20-\x7E]/g, "_").slice(0, 23);
+  v.setUint32(0, PRESET_MAGIC, true); v.setUint32(4, o.seq >>> 0, true);
+  for (let i = 0; i < nm.length; i++) r[8 + i] = nm.charCodeAt(i);
+  v.setUint16(32, o.bpm & 0xFFFF, true); r[34] = o.genre & 0xFF; r[35] = o.custom_cab_idx & 0xFF; r[36] = o.custom_cab_blend & 0xFF; v.setInt8(37, Math.max(-12, Math.min(12, o.input_trim_db | 0)));
+  r[38] = o.gate_threshold_pct & 0xFF; r[39] = o.slot_enable_mask & 0xFF;
+  o.slot_order.forEach((x, i) => { r[40 + i] = x & 0xFF; }); r[48] = o.amp_model & 0xFF; r[49] = o.cab_model & 0xFF; r[50] = Math.max(0, Math.min(100, o.preset_vol | 0)); r[51] = flags;
+  o.slot_type.forEach((x, i) => { r[52 + i] = x & 0xFF; }); o.stomp_map.forEach((x, i) => { r[60 + i] = x & 0xFF; }); q.forEach((x, i) => v.setUint16(64 + 2 * i, x, true));
+  v.setUint32(160, crc32(r.subarray(0, 160)), true);
+  return r;
+}
+// records (null where the unit could not give one) -> the document that is saved
+function presetsDocBuild(recs, meta) {
+  return { format: PRESET_FORMAT, version: 1, created: (meta && meta.created) || new Date().toISOString(), build: (meta && meta.build) || "", record_size: PRESET_SIZE, slots: PRESET_SLOTS,
+    note: "All 80 presets of an Icarus unit. Names and values can be edited; 'params' are Q16 (0..65535 = 0..100 %), 'params_pct' is for reading only and is ignored on a restore.",
+    presets: recs.map((r, i) => (r ? recordToPreset(i, r) : { slot: i + 1, unreadable: true })) };
+}
+// a document -> 80 records (null where the file has none); throws on a file that is not an Icarus preset file
+function presetsFromDoc(doc) {
+  if (!doc || doc.format !== PRESET_FORMAT || !Array.isArray(doc.presets)) throw new Error("not an Icarus preset file (format \"" + PRESET_FORMAT + "\")");
+  if ((doc.record_size | 0) !== PRESET_SIZE) throw new Error("the file is for a " + doc.record_size + "-byte preset record; this firmware's is " + PRESET_SIZE);
+  const out = new Array(PRESET_COUNT).fill(null);
+  for (const o of doc.presets) { const i = (o.slot | 0) - 1; if (i >= 0 && i < PRESET_COUNT && !o.unreadable) out[i] = presetToRecord(o); }
+  return out;
+}
+// what a restore checks when it reads a preset back: everything from the name on (the unit sets its own sequence number and CRC, and never stores the EMPTY flag)
+function presetSame(a, b) { if (!a || !b) return false; for (let i = 8; i < 160; i++) { if (i === 51) { if ((a[i] & ~PRESET_FLAG_EMPTY) !== (b[i] & ~PRESET_FLAG_EMPTY)) return false; } else if (a[i] !== b[i]) return false; } return true; }
 // ---- firmware pack check (no write) ----
 const APP_BASE = 0x4000, APP_SIZE = 532480;
 function checkFirmware(f) {
@@ -1373,13 +1434,21 @@ async function sendShort(bytes) {
   for (let i = 0; i < bytes.length; i += 3) { await link.send(bytes.slice(i, i + 3)); if (link.ble) await sleep(4); }
 }
 
-async function request(cmd, payload, type, ms) {
-  const p = new Promise((res, rej) => {
-    waiter = { type, res };
-    setTimeout(() => { if (waiter && waiter.res === res) { waiter = null; rej(new Error("no reply to command " + cmd)); } }, ms || (link && link.ble ? 8000 : 1500));
-  });
-  await link.sendFrame(buildFrame(cmd, payload));
-  return p;
+// One request at a time. There is one reply slot (waiter): the live poll's state request used to take it from a request in flight (the name list after an upload,
+// the rename), which then timed out, so a stored capture was never renamed from its file and kept the unit's "USER NAM nn". Requests now wait their turn.
+let reqQueue = Promise.resolve();
+function request(cmd, payload, type, ms) {
+  const go = async () => {
+    const p = new Promise((res, rej) => {
+      waiter = { type, res };
+      setTimeout(() => { if (waiter && waiter.res === res) { waiter = null; rej(new Error("no reply to command " + cmd)); } }, ms || (link && link.ble ? 8000 : 1500));
+    });
+    await link.sendFrame(buildFrame(cmd, payload));
+    return p;
+  };
+  const r = reqQueue.then(go, go);
+  reqQueue = r.catch(() => {});
+  return r;
 }
 
 let toastTimer = null;
@@ -1390,10 +1459,11 @@ function toast(t) {
 function setStatus(on, t) {
   const s = $("status"); s.className = on ? "on" : "";
   s.textContent = t || (on ? "connected" : "not connected");
+  if (typeof prRefresh === "function") setTimeout(prRefresh, 0);
 }
 
 // ---- Tab Switching ----
-const TABS = [["chain", "Rig Chain (5-Block)"], ["synth", "Icarus Synth Lab"], ["global", "Global"], ["stomp", "Footswitch / Tuner"], ["files", "NAM / Cab"], ["fw", "Firmware"]];
+const TABS = [["chain", "Rig Chain (5-Block)"], ["synth", "Icarus Synth Lab"], ["global", "Global"], ["stomp", "Footswitch / Tuner"], ["files", "NAM / Cab"], ["presets", "Presets"], ["fw", "Firmware"]];
 const nav = $("tabs");
 TABS.forEach(([id, t], i) => {
   const b = document.createElement("button");
@@ -2226,6 +2296,7 @@ async function refresh() {
     state = decodeState(await request(80, [], 0x60));
     render();
     renderStore();
+    prRefresh();
   } catch (e) { log("state: " + e.message); }
 }
 
@@ -2332,7 +2403,7 @@ async function renameItem(kind, r) {
   await readNames(kind); await refresh();
 }
 
-const stem = (n, cap) => n.replace(/\.[^.]*$/, "").replace(/[^\x20-\x7E]/g, "_").trim().slice(0, cap);
+const stem = (n, cap) => n.replace(/\.(nam|namb|bin|wave|am3|am4|wav|json|ir|cab|q18)$/i, "").replace(/[^\x20-\x7E]/g, "_").trim().slice(0, cap);
 
 $("namFile").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
@@ -2367,7 +2438,7 @@ $("replaceFile").onchange = async (e) => {
   const raw = new Uint8Array(await f.arrayBuffer()), r = t.kind === 0 ? stripNam(raw, f.name) : checkCab(raw);
   if (r.error) { log("replace: " + r.error); return; }
   if (!confirm("Replace the " + KINDS[t.kind].n + ' "' + t.name + '" with ' + f.name + "?")) return;
-  await upload(t.kind, r.bytes, t.idx, null, t.kind === 0 ? namMeasureSafe(r.bytes) : null);
+  await upload(t.kind, r.bytes, t.idx, (t.kind === 0 && r.name) || f.name, t.kind === 0 ? namMeasureSafe(r.bytes) : null);
 };
 
 async function upload(kind, bytes, slot, name, level) {
@@ -2384,8 +2455,14 @@ async function upload(kind, bytes, slot, name, level) {
     log((live ? "live cabinet" : K.n) + " sent (" + bytes.length + " B in " + fr.length + " frames)");
   } catch (e) { log("upload failed: " + e.message); }
   busy = false; await sleep(500);
+  try { await uploadDone(kind, slot, name, level, live, had); }
+  catch (e) { log("after the upload: " + e.message + " (read the lists again with Refresh)"); }
+  bar.hidden = true;
+}
+async function uploadDone(kind, slot, name, level, live, had) {
+  const K = KINDS[kind];
   const was = new Set(storedRows(kind).map((r) => r.idx + ":" + r.name));
-  await readNames(kind); await refresh(); bar.hidden = true;
+  await readNames(kind); await refresh();
   if (live) { log(state && state.userCab ? "the live cabinet is loaded" : "the unit did not take the cabinet"); return; }
   const rows = storedRows(kind);
   if (slot === 0xFF) {
@@ -2396,8 +2473,82 @@ async function upload(kind, bytes, slot, name, level) {
     const f2 = storedRows(kind).find((r) => r.idx === fresh.idx);
     log(K.n + " stored in slot " + (fresh.idx + 1) + ": " + (f2 ? f2.name : fresh.name) + " (" + K.have() + " of " + K.max + ")");
     await sendShort(nrpn(kind === 0 ? 1 : 5, 0x40, fresh.type + 0x20, true)); log("selected it on the unit");
-  } else { log(K.n + " in slot " + (slot + 1) + " replaced"); if (kind === 0) await sendNamLevel(slot, level); }
+  } else {
+    if (name && stem(name, K.cap)) { await userOp(1, kind, slot, stem(name, K.cap)); await readNames(kind); await refresh(); }   // the unit keeps the old name: give it the new file's
+    const f2 = storedRows(kind).find((r) => r.idx === slot);
+    log(K.n + " in slot " + (slot + 1) + " replaced" + (f2 ? ": " + f2.name : ""));
+    if (kind === 0) await sendNamLevel(slot, level);
+  }
 }
+// ---- the Presets tab ----
+let prRecs = null;
+function prRefresh() {
+  if (!$("prBackup")) return;
+  $("prBackup").disabled = !link || busy;
+  $("prRestore").disabled = !(link && !busy && prRecs && prRecs.some((r) => r && !(r[51] & PRESET_FLAG_EMPTY)));
+}
+async function readPreset(i) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const d = await request(83, [i], 0x63, 4000);
+      if (d[0] === i && d[1] === 0) { const r = Uint8Array.from(d.slice(2, 2 + PRESET_SIZE)); if (recordOk(r)) return r; }
+      if (d[0] === i && d[1] === 1) return null;                         // the unit has no valid record there
+    } catch (e) { if (attempt === 2) throw e; }
+    await sleep(300);
+  }
+  return null;
+}
+function saveFile(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+$("prBackup").onclick = async () => {
+  if (!link) { log("not connected"); return; }
+  busy = true; prRefresh(); const bar = $("prBar"); bar.hidden = false; bar.value = 0;
+  try {
+    const recs = [];
+    for (let i = 0; i < PRESET_COUNT; i++) { recs.push(await readPreset(i)); bar.value = Math.round(100 * (i + 1) / PRESET_COUNT); }
+    const doc = presetsDocBuild(recs, { build: buildCode });
+    const t = new Date(), p2 = (x) => String(x).padStart(2, "0");
+    const fn = "Icarus_presets_" + t.getFullYear() + p2(t.getMonth() + 1) + p2(t.getDate()) + "-" + p2(t.getHours()) + p2(t.getMinutes()) + ".json";
+    saveFile(fn, JSON.stringify(doc, null, 1));
+    const bad = recs.filter((r) => !r).length, empty = recs.filter((r) => r && (r[51] & PRESET_FLAG_EMPTY)).length;
+    log("saved " + fn + ": " + (PRESET_COUNT - bad - empty) + " presets, " + empty + " empty" + (bad ? ", " + bad + " the unit could not read" : ""));
+  } catch (e) { log("preset backup failed: " + e.message + " (nothing was saved)"); }
+  finally { busy = false; bar.hidden = true; prRefresh(); }
+};
+$("prFile").onchange = async (e) => {
+  const f = e.target.files[0]; prRecs = null; if (!f) { $("prInfo").textContent = "no file"; prRefresh(); return; }
+  try {
+    prRecs = presetsFromDoc(JSON.parse(await f.text()));
+    const full = prRecs.filter((r) => r && !(r[51] & PRESET_FLAG_EMPTY)).length, empty = prRecs.filter((r) => r && (r[51] & PRESET_FLAG_EMPTY)).length;
+    $("prInfo").innerHTML = "<b>" + f.name + "</b>: " + full + " presets to write, " + empty + " empty (left as they are)" + (PRESET_COUNT - full - empty ? ", " + (PRESET_COUNT - full - empty) + " missing in the file (left as they are)" : "");
+  } catch (err) { $("prInfo").innerHTML = '<span class="warn">' + err.message + "</span>"; }
+  prRefresh();
+};
+$("prRestore").onclick = async () => {
+  if (!link || !prRecs) return;
+  const todo = prRecs.map((r, i) => [i, r]).filter(([, r]) => r && !(r[51] & PRESET_FLAG_EMPTY));
+  if (!confirm("Write " + todo.length + " presets to the unit?\n\nThe presets in those slots on the unit are overwritten, and an unsaved edit on the unit is lost. This cannot be undone: save a backup first.")) return;
+  busy = true; prRefresh(); const bar = $("prBar"); bar.hidden = false; bar.value = 0;
+  const failed = []; let done = 0;
+  try {
+    for (const [i, r] of todo) {
+      let ok = false;
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        const fr = uploadFrames(r, 0, i, link.chunk);
+        for (let k = 0; k < fr.length; k++) { await link.sendFrame(fr[k]); await sleep(k === fr.length - 1 ? 60 : 25); }
+        ok = presetSame(await readPreset(i), r);                          // answered once the unit has written the bank: the read-back is the acknowledgement
+      }
+      if (!ok) failed.push("P" + String(i + 1).padStart(2, "0"));
+      done++; bar.value = Math.round(100 * done / todo.length);
+    }
+    log("restored " + (todo.length - failed.length) + " of " + todo.length + " presets" + (failed.length ? "; NOT written: " + failed.join(" ") : ""));
+    if (state) await sendShort(pc(state.preset));                          // reload the preset that is playing, so the unit plays what was restored
+  } catch (e) { log("preset restore stopped after " + done + " of " + todo.length + ": " + e.message); }
+  finally { busy = false; bar.hidden = true; prRefresh(); await sleep(400); await refresh(); }
+};
 $("namSend").onclick = () => upload(0, namBytes, 0xFF, namFileName, namLevel);
 $("cabSend").onclick = () => upload(1, cabBytes, 0xFF, cabFileName);
 $("cabLive").onclick = () => upload(1, cabBytes, 0xFE, null);
@@ -2571,7 +2722,7 @@ async function fwCompare() {
 }
 $("fwVerify").onclick = fwCompare;
 }
-if (typeof module !== "undefined") module.exports = { PkgServer, unwrapFwsc, OTA_SOFTKEY, OFFICIAL_SHA256, OFFICIAL_SIZE, areaFromFile, namJson, scramble, rawFromDump, diagReadFrame, diagParse, dryRun, verifyOffsets, IMAGE_SIZE, otaRequestFrame, otaParseRequest, otaResponse, OTA_QUERY, OTA_UPGRADE, wavToCab, parseWav, chainMove, chainMoveMsg, isOrder, pack8to7, unpack7to8, buildFrame, parseReply, bleFrames, BleUnframer, nrpn, cc, pc, decodeState, stripNam, checkCab, uploadFrames, checkFirmware, SLOT_MODULE };
+if (typeof module !== "undefined") module.exports = { PkgServer, unwrapFwsc, OTA_SOFTKEY, OFFICIAL_SHA256, OFFICIAL_SIZE, areaFromFile, namJson, scramble, rawFromDump, diagReadFrame, diagParse, dryRun, verifyOffsets, IMAGE_SIZE, otaRequestFrame, otaParseRequest, otaResponse, OTA_QUERY, OTA_UPGRADE, wavToCab, parseWav, chainMove, chainMoveMsg, isOrder, pack8to7, unpack7to8, buildFrame, parseReply, bleFrames, BleUnframer, nrpn, cc, pc, decodeState, stripNam, checkCab, uploadFrames, checkFirmware, SLOT_MODULE, crc32, recordOk, recordToPreset, presetToRecord, presetsDocBuild, presetsFromDoc, presetSame, PRESET_SIZE };
 </script>
 </body>
 </html>
