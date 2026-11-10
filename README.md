@@ -105,7 +105,7 @@ The built-in guitar synthesizer (`PA_SLOT_SYNTH`) transforms electric guitar inp
 4. Keep an unmodified `Pocket AMP.fwsc` from the vendor's download page: the editor needs it to restore the original firmware. For a complete, byte-for-byte image of your unit's flash, use the download-mode dump described in [RECOVERY.md](RECOVERY.md); the Web Editor does not make one.
 
 ### 2. Install Icarus
-1. Under **Firmware update** in the Web Editor, pick `Icarus_0.10.fwsc` from the [release](https://github.com/28spawn/Icarus/releases) (or the `Icarus.fwsc` your own build writes).
+1. Under **Firmware update** in the Web Editor, pick `Icarus_0.11.fwsc` from the [release](https://github.com/28spawn/Icarus/releases) (or the `Icarus.fwsc` your own build writes).
 2. Click **Install this firmware**.
 3. The editor transfers the image over USB MIDI SysEx. The running firmware verifies the container signature and memory bounds, stages the update loader into SRAM, and writes the application partition.
 4. The unit will reboot automatically into Icarus.
