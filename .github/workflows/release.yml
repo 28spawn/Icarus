@@ -1,0 +1,185 @@
+# Publishes a release when a version tag is pushed.
+#
+# WHY THIS PUBLISHES COMMITTED ARTIFACTS INSTEAD OF REBUILDING:
+# the firmware is built with the proprietary JieLi pi32 toolchain (C:\JL\pi32), which is
+# not available on the GitHub-hosted runners, so CI cannot produce the .bin/.fwsc. The
+# build is therefore done on the maintainer's machine by custom-fw\build.ps1, which writes
+# the finished package into custom-fw\release\<name>\ and commits it with the release
+# commit. This workflow publishes exactly that committed, checksum-verified payload.
+#
+# The point of the workflow is that a release commit can never land on main without the
+# release appearing: pushing the tag is the trigger, and the tag is what names the
+# package. Previously a release commit could be merged with nothing published.
+#
+# To release:
+#   1. Bump PA_FW_VERSION in custom-fw/include/pa_config.h (11u -> 12u means 0.12).
+#   2. Run custom-fw\build.ps1. It writes custom-fw\release\Icarus_<ver>\.
+#   3. Commit the new package (and its SHA256SUMS) together with the version bump.
+#   4. Merge, then:  git tag -a v0.1.2 -m "Icarus v0.1.2" <release commit> && git push origin v0.1.2
+#      Pushing the tag publishes the release. Nothing else is needed.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'An existing tag to publish (e.g. v0.1.1)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Publish as a pre-release'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish the release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve the release package and verify its checksums
+        id: payload
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > payload.env
+          import hashlib, os, pathlib, re, sys
+
+          tag = os.environ["RELEASE_TAG"].strip()
+          m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+          if not m:
+              sys.exit(f"the tag {tag!r} is not vMAJOR.MINOR.PATCH")
+          major, minor, patch = (int(g) for g in m.groups())
+
+          # The firmware keeps its minor version in two digits, and the tag's minor and
+          # patch digits concatenate into it: v0.1.1 -> 0.11, v0.1.0 -> 0.10,
+          # v1.0.5 -> 1.05. That is PA_FW_VERSION = major * 100 + minor, rendered as
+          # "{major}.{minor:02d}" by build.ps1.
+          minor2 = int(f"{minor}{patch}")
+          ver = f"{major}.{minor2:02d}"
+          roots = pathlib.Path("custom-fw/release")
+          if not roots.is_dir():
+              sys.exit("custom-fw/release does not exist in this commit")
+
+          # The candidates cover the naming build.ps1 produces: Icarus_<ver> and
+          # BlackBox_Icarus_<ver>, with and without the _EXPERIMENTAL suffix.
+          names = []
+          for prefix in ("Icarus", "BlackBox_Icarus"):
+              for suffix in ("", "_EXPERIMENTAL"):
+                  names.append(f"{prefix}_{ver}{suffix}")
+          found = [roots / n for n in names if (roots / n).is_dir()]
+          if not found:
+              # Any other package whose name ends in this version will do too.
+              found = [p for p in sorted(roots.iterdir())
+                       if p.is_dir() and p.name.endswith(f"_{ver}")]
+          if not found:
+              have = ", ".join(sorted(p.name for p in roots.iterdir() if p.is_dir())) or "(none)"
+              sys.exit(f"no release package for {tag} (looked for {', '.join(names)}).\n"
+                       f"packages present: {have}\n"
+                       f"build it locally with custom-fw\\build.ps1 and commit the result first.")
+          # A stable build wins over an experimental one if both are present.
+          found.sort(key=lambda p: p.name.endswith("_EXPERIMENTAL"))
+          pkg = found[0]
+
+          # Verify SHA256SUMS before anything is published.
+          sums = pkg / "SHA256SUMS"
+          if not sums.is_file():
+              sys.exit(f"{sums} is missing: the package was not produced by build.ps1")
+          for line in sums.read_text().splitlines():
+              if not line.strip():
+                  continue
+              digest, name = line.split(None, 1)
+              name = name.strip().lstrip("*")
+              target = pkg / name
+              if not target.is_file():
+                  sys.exit(f"{name} is listed in SHA256SUMS but missing from {pkg}")
+              actual = hashlib.sha256(target.read_bytes()).hexdigest()
+              if actual != digest.lower():
+                  sys.exit(f"{name}: SHA256 mismatch\n  expected {digest}\n  actual   {actual}")
+
+          # RELEASE_NOTES.md feeds the release body, so it is not uploaded as an asset.
+          assets = sorted(p for p in pkg.iterdir() if p.is_file() and p.name != "RELEASE_NOTES.md")
+          if not assets:
+              sys.exit(f"{pkg} holds no files to publish")
+          base = pkg.name
+          print(f"VER={ver}")
+          print(f"BASE={base}")
+          print(f"DIR={pkg.as_posix()}")
+          print(f"ASSETS={'|'.join(a.as_posix() for a in assets)}")
+          PY
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done < payload.env
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          VER: ${{ steps.payload.outputs.VER }}
+          BASE: ${{ steps.payload.outputs.BASE }}
+          DIR: ${{ steps.payload.outputs.DIR }}
+          ASSETS: ${{ steps.payload.outputs.ASSETS }}
+        run: |
+          set -euo pipefail
+
+          # The per-release notes win when the package carries them; otherwise the
+          # standard body below is used.
+          notes=$(mktemp)
+          if [ -f "$DIR/RELEASE_NOTES.md" ]; then
+            cp "$DIR/RELEASE_NOTES.md" "$notes"
+          else
+            cat > "$notes" <<EOF
+          ### Icarus $VER — Developer Preview
+
+          The open-source custom firmware, DSP engine and analog guitar synthesizer for the M-VAVE / Donner Pocket AMP (JieLi AC791N SoC).
+
+          > [!WARNING]
+          > **Work in progress / Developer Preview.** Flashing custom firmware writes to physical SPI-NOR flash memory. Always back up your unit first using the Web Editor before flashing.
+
+          #### Release Assets
+          - \`$BASE.fwsc\`: Signed container for direct Web Editor SysEx installation.
+          - \`$BASE.bin\`: Application partition binary (\`0x4000..0x85FFF\`).
+          - \`SHA256SUMS\`: Cryptographic SHA-256 hashes.
+          - \`NOTICE.md\`: Complete legal attribution and licensing terms.
+
+          The full licence texts are in \`$DIR/LICENSES/\` in the repository.
+          EOF
+          fi
+
+          # A tag push publishes as a pre-release (the project's convention). A manual
+          # run follows the checkbox.
+          prerelease_flag=(--prerelease)
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" != "true" ]; then
+            prerelease_flag=()
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "the release $TAG already exists: nothing to do."
+            exit 0
+          fi
+
+          mapfile -t assets < <(printf '%s\n' "$ASSETS" | tr '|' '\n')
+          gh release create "$TAG" \
+            --repo "$GH_REPO" \
+            --verify-tag \
+            --title "Icarus $VER (Developer Preview)" \
+            --notes-file "$notes" \
+            "${prerelease_flag[@]}" \
+            "${assets[@]}"
+
+          echo "published: https://github.com/$GH_REPO/releases/tag/$TAG"
