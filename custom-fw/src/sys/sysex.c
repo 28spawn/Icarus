@@ -224,13 +224,21 @@ static void commit_upload_session(void) {
             meta.makeup_db  = 0.0f;
             for (int k = 0; k < 6; k++) meta.amp_knobs[k] = 50;
             meta.flags = 0;
-            char nam_slot_name[16];
+            char nam_slot_name[24];
             nam_slot_name[0] = 'U'; nam_slot_name[1] = 'S'; nam_slot_name[2] = 'E'; nam_slot_name[3] = 'R'; nam_slot_name[4] = ' ';
             nam_slot_name[5] = 'N'; nam_slot_name[6] = 'A'; nam_slot_name[7] = 'M'; nam_slot_name[8] = ' ';
             uint8_t slot_disp = (uint8_t)(g_upload.target_slot + 1u);
             nam_slot_name[9]  = (char)('0' + (slot_disp / 10u));
             nam_slot_name[10] = (char)('0' + (slot_disp % 10u));
             nam_slot_name[11] = '\0';
+            /* An upload to a capture that exists REPLACES it in place: pa_user_nam_add() finds the slot it writes by the name, so the upload takes that capture's own name.
+             * Under "USER NAM nn" it matched nothing once the capture had been renamed, and was added as a NEW capture in a free slot. The editor renames it from the file after. */
+            if (g_upload.target_slot < PA_USER_NAM_MAX_COUNT && pa_user_nam_is_active(g_upload.target_slot)) {
+                const char *cur = pa_user_nam_get_name(g_upload.target_slot);
+                uint32_t k = 0;
+                if (cur) for (; cur[k] && k < sizeof nam_slot_name - 1u; k++) nam_slot_name[k] = cur[k];
+                if (k) nam_slot_name[k] = '\0';
+            }
             rc = pa_user_nam_add(nam_slot_name, type, 0, 0, head_scale,
                                  g_upload.buffer, g_upload.rx_bytes, &meta);
             if (rc >= 0) g_upload.target_slot = (uint8_t)rc;
@@ -382,6 +390,16 @@ static void pa_sysex_dispatch(uint8_t cmd, const uint8_t *payload, uint32_t len)
         uint8_t rec[PA_STATE_REC_SIZE];
         const uint32_t n = g_state_provider ? g_state_provider(rec, sizeof rec) : 0u;
         if (n) pa_sysex_reply(PA_REPLY_PA_STATE, rec, n);
+    } else if (cmd == PA_CMD_PA_PRESET) {
+        /* one stored preset, as it is in the flash, for the editor's backup: [index, status] + the pa_preset_t record (read only) */
+        uint8_t out[2u + sizeof(pa_preset_t)];
+        const uint8_t idx = len > 0 ? payload[0] : 0xFFu;
+        pa_preset_t rec;
+        memset(out, 0, sizeof out);
+        out[0] = idx;
+        if (idx < PA_PRESET_COUNT && pa_preset_load(idx, &rec) == 0) memcpy(&out[2], &rec, sizeof rec);
+        else out[1] = 1u;
+        pa_sysex_reply(PA_REPLY_PA_PRESET, out, sizeof out);
     } else if (cmd == PA_CMD_PA_NAMES) {
         uint8_t out[5 + 15 * 16];
         const uint32_t n = g_names_provider ? g_names_provider(len > 0 ? payload[0] : 0u, len > 1 ? payload[1] : 0u, out, sizeof out) : 0u;

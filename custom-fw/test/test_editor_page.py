@@ -33,6 +33,10 @@ open(os.path.join(tmp, "run.js"), "w", encoding="utf-8").write(
     "if(f==='namJson'){const r=c.namJson(Uint8Array.from(a[0]),a[1]);return r.error?{error:r.error}:{bytes:Array.from(r.bytes),name:r.name,how:r.how};}"
     "if(f==='areaFromFile'){const r=c.areaFromFile(Uint8Array.from(a[0]));return r.error?{error:r.error}:{how:r.how,area:Array.from(r.area)};}"
     "if(f==='stripNam'||f==='checkCab'){const r=c[f](Uint8Array.from(a[0]));return r.error?{error:r.error}:{n:r.bytes.length,bytes:Array.from(r.bytes).slice(0,8),how:r.how,taps:r.taps};}"
+    "if(f==='presetRT'){const recs=a[0].map(x=>x?Uint8Array.from(x):null);const ok=recs.map(r=>r?c.recordOk(r):null);const doc=JSON.parse(JSON.stringify(c.presetsDocBuild(recs,{build:'t'})));"
+    "if(a[1])doc.presets[a[1][0]].name=a[1][1];const back=c.presetsFromDoc(doc);return {ok,doc,back:back.map(r=>r?Array.from(r):null),same:back.map((r,i)=>recs[i]?c.presetSame(r,recs[i]):null)};}"
+    "if(f==='presetBad'){try{c.presetsFromDoc(a[0]);return 'accepted';}catch(e){return e.message;}}"
+    "if(f==='uploadFrames'){return c.uploadFrames(Uint8Array.from(a[0]),a[1],a[2],a[3]).map(x=>Array.from(x));}"
     "const r=c[f](...a);return ArrayBuffer.isView(r)?Array.from(r):r;});console.log(JSON.stringify(out));")
 fails = 0
 
@@ -373,6 +377,32 @@ page_src = open(os.path.join(ROOT, "web", "Icarus_Web_Editor.html"), encoding="u
 check('id="namClear"' in page_src and 'id="cabClear"' in page_src, "the page has a clear button for captures and one for cabinets")
 check("prompt(\"Type CLEAR" in page_src, "clearing asks for the typed word CLEAR first")
 check(js(["buildFrame", 82, [2, 1, 0]])[0][-1] == 0xF7, "the clear command (cmd 82, op 2) is a normal frame")
+print("=== the Presets tab: save all and restore all (cmd 83, upload target 0) ===")
+check('id="t-presets"' in page_src and '["presets", "Presets"]' in page_src, "the page has a Presets tab")
+frames = js(*[["buildFrame", 83, [i]] for i in range(80)])
+reps = []
+for fr in frames:
+    drain(); feed(fr); reps.append(reply())
+parsed = js(*[["parseReply", r] for r in reps])
+recs = [q["data"][2:] if q and q["type"] == 0x63 and q["data"][0] == i and q["data"][1] == 0 else None for i, q in enumerate(parsed)]
+check(all(r is not None and len(r) == 164 for r in recs), "all 80 presets come back through the page's frame parser")
+rt = js(["presetRT", recs, None])[0]
+check(all(rt["ok"]), "the page checks every record's magic and CRC")
+check(rt["back"] == recs, "saved to JSON and read back, every record is the unit's, byte for byte")
+check(len(rt["doc"]["presets"]) == 80 and rt["doc"]["format"] == "icarus-presets" and rt["doc"]["slots"][1] == "SYNTH", "the file: 80 presets, format icarus-presets, slot 1 is the SYNTH")
+ed = js(["presetRT", recs, [4, "EDITED IN JSON"]])[0]
+check(ed["same"][4] is False and all(x for i, x in enumerate(ed["same"]) if i != 4), "a name edited in the file changes that record only")
+drain()
+for fr in js(["uploadFrames", ed["back"][4], 0, 70, 200])[0]:
+    feed(fr)
+run(50)
+drain(); feed(js(["buildFrame", 83, [70]])[0])
+q = js(["parseReply", reply()])[0]
+got = q["data"][2:] if q else None
+check(got is not None and bytes(got[8:22]) == b"EDITED IN JSON", "the page's restore frames write it to P71 and it reads back with the new name")
+check(got is not None and js(["presetSame", got, ed["back"][4]])[0] is True, "and the read-back check (presetSame) passes on what the unit stored")
+check("not an Icarus preset file" in js(["presetBad", {"format": "pocket-amp-presets", "presets": []}])[0], "an Onyx (pocket-amp-presets) file is refused: Icarus slots differ")
+check("164" in js(["presetBad", {"format": "icarus-presets", "record_size": 92, "presets": []}])[0], "a file for another record size is refused")
 print("=== the tables are the firmware's ===")
 r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "gen_editor_tables.py"), "--check"], capture_output=True, text=True)
 check(r.returncode == 0, r.stdout.strip() or r.stderr.strip())

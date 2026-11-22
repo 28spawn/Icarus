@@ -6,6 +6,7 @@
 
 uint32_t pa_crc32(const void *data, uint32_t len) { (void)data; (void)len; return 0; }
 int      pa_preset_save(int slot, const void *p) { (void)slot; (void)p; return 0; }
+int      pa_preset_load(int idx, void *p) { (void)idx; (void)p; return -1; }
 int      pa_settings_save(const void *s) { (void)s; return 0; }
 int      pa_settings_load(void *s) { (void)s; return -1; }
 int      pa_spi_nor_erase_sector(uint32_t a) { (void)a; return 0; }
@@ -21,6 +22,7 @@ int      pa_user_nam_is_active(uint8_t i) { (void)i; return 0; }
 int      pa_user_nam_delete(uint8_t i) { (void)i; return -1; }
 int      pa_user_nam_set_name(uint8_t i, const char *n) { (void)i; (void)n; return -1; }
 int      pa_user_nam_set_makeup(uint8_t i, int8_t x4) { (void)i; (void)x4; return -1; }
+const char *pa_user_nam_get_name(uint8_t i) { (void)i; return ""; }
 int      pa_user_cab_add(const char *n, int slot, const int32_t *t, uint32_t c) { (void)n; (void)slot; (void)t; (void)c; return -5; }
 int      pa_user_cab_delete(uint8_t i) { (void)i; return -1; }
 int      pa_user_nam_clear(void) { return -1; }
